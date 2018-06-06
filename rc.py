@@ -8,6 +8,7 @@ tables for railway control systems.
 import xml.etree.ElementTree
 import numbers
 import math
+from math import inf
 from enum import Enum
 from collections import namedtuple
 from collections import abc
@@ -98,17 +99,6 @@ ns = {'railml': 'http://www.railml.org/schemas/2013',
         'dc': 'http://purl.org/dc/elements/1.1/'
         }
 
-class Topology(namedtuple('Topology',["segments","links"])):
-    def find_paths_directed(self,dir, start_obj, set, max_dist, min_dist):
-        stack = [(start_obj,[],0.0)]
-        while len(path_stack) > 0:
-            obj,links,l = stack.pop()
-            for (next_obj,new_links,dl) in obj.next(dir):
-                if next_obj in set and min_dist <= l+dl <= max_dist:
-                    yield Path(start_obj, links + new_links, next_obj)
-                elif l+dl <= max_dist:
-                    path_stack.append((next_obj,links+new_links,l+dl))
-
 def _partition(l,pred):
     a,b = [],[]
     for x in l:
@@ -167,6 +157,17 @@ def _track_length(e):
 class Model:
     """Railway infrastructure model (tracks and trackside objects)"""
 
+    def find_paths_directed(self, dir, start_obj, goal_set, max_dist, min_dist):
+        stack = [(start_obj, [], 0.0)]
+        while len(stack) > 0:
+            obj,links,l = stack.pop()
+            for next_obj, dl, tags in obj.get_links(dir):
+                if next_obj in goal_set and min_dist <= l + dl <= max_dist:
+                    yield (start_obj, links + tags, next_obj)
+                elif l+dl <= max_dist:
+                    stack.append((next_obj, links + tags, l+dl))
+
+
     def __init__(self, filename):
         """Read infrastructure model from XML file."""
 
@@ -200,13 +201,13 @@ class Model:
                     conn_id_objects[a] = (b,d,o)
 
             for o1, o2 in zip(objs, objs[1:]):
-                edge_tag = None
+                edge_tag = []
                 #dist = (o2.pos() - o1.pos()).length()
                 dist = float(o2._xml.attrib["pos"]) - float(o1._xml.attrib["pos"])
                 if "switch" in o1._xml.tag and _switch_orientation(o1._xml) == Dir.UP: 
-                    edge_tag = (o1.id, _switch_connection_course(o1._xml).opposite())
+                    edge_tag.append((o1.id, _switch_connection_course(o1._xml).opposite()))
                 if "switch" in o2._xml.tag and _switch_orientation(o2._xml) == Dir.DOWN:
-                    edge_tag = (o2.id, _switch_connection_course(o2._xml).opposite())
+                    edge_tag.append((o2.id, _switch_connection_course(o2._xml).opposite()))
                 o1.up_links.append((o2,dist,edge_tag))
                 o2.down_links.append((o1,dist,edge_tag))
 
@@ -221,11 +222,11 @@ class Model:
             assert id == id2
             assert dir.opposite() == dir2
 
-            edge_tag = None
+            edge_tag = []
             if "switch" in o1._xml.tag and _switch_orientation(o1._xml) == dir:
-                edge_tag = (o1.id, _switch_connection_course(o1._xml))
+                edge_tag.append((o1.id, _switch_connection_course(o1._xml)))
             if "switch" in o2._xml.tag and _switch_orientation(o2._xml) == dir.opposite():
-                edge_tag = (o2.id, _switch_connection_course(o2._xml))
+                edge_tag.append((o2.id, _switch_connection_course(o2._xml)))
 
             if dir == Dir.UP:
                 o1.up_links.append((o2,0.0,edge_tag))
@@ -263,15 +264,14 @@ def _object_connections(e):
         yield (conn.attrib["id"], conn.attrib["ref"],dir)
 
 class PointObject:
-    #def find_backward(self, set=None, max_dist=None, min_dist=None):
-    #    topology.find_directed(self.node.opposite(), set, max_dist, min_dist)
-
-    def find_forward(self, set=None, max_dist=None, min_dist=None):
-        self.topology.find_paths_directed(Dir.from_string(self.dir), self,
-                set, max_dist, min_dist)
+    def find_forward(self, set=None, max_dist=inf, min_dist=0.0):
+        return self.model.find_paths_directed(self.dir(), self, set, max_dist, min_dist)
 
     def pos(self):
         return TrackRef._from_xml(self.model,self._xml_track).at_pos(float(self._xml.attrib["pos"]))
+
+    def dir(self):
+        return Dir.from_string(self._xml.attrib["dir"])
 
     def __getattr__(self, name):
         try:
@@ -293,19 +293,10 @@ class PointObject:
         self.up_links = []
         self.down_links = []
 
-    def next(self, dir):
-        # yield 3-tuples: (other_node, new_links, distance)
-        (interval,objs) = self.topology.segments[self._segment_idx]
-        next_idx = objs.index(self) + dir.factor() * 1
-        if 0 <= next_idx < len(objs):
-            other = objs[next_idx]
-            yield (other, [], self.pos().to_pos(other.pos().pos).length)
-        else:
-            if dir == Dir.UP:
-                for link_obj in self.topology.links[obj._segment_idx]:
-                    #yield (link_obj, [], 
-                    pass
-
+    def get_links(self, dir):
+        if dir == Dir.UP: return self.up_links
+        if dir == Dir.DOWN: return self.down_links
+        raise Exception()
 
 class _Set(abc.Set):
     def __init__(self, l): self._items = set(l)
@@ -328,7 +319,7 @@ class PointObjectSet(_Set):
             base = filter(lambda x: id == x.id, base)
         return PointObjectSet(filter(func, base))
 
-    def find_forward(self, set=None, max_dist=None, min_dist=None):
+    def find_forward(self, set=None, max_dist=inf, min_dist=0.0):
         if not callable(set): set = lambda x: set
         return [path for start in self \
                      for path in start.find_forward(set(start), max_dist, min_dist)]
