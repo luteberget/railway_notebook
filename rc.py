@@ -122,57 +122,6 @@ def _sorted_pos_xml(l):
 def _sorted_pos(l):
     return sorted(l, key=lambda x: x.pos())
 
-def _track_start_conn_id(t):
-    topo = t.find("railml:trackTopology",ns)
-    begin = topo.find("railml:trackBegin",ns)
-    return begin.attrib["id"]
-
-
-def _mk_topology2(model,tracks):
-    segments = []
-    links = []
-    link_to_track = []
-    start_refs = {}
-    for t in tracks:
-        start_refs[_track_start_conn_id(t)] = (len(segments)-1,None)
-        objs = _track_objects(t)
-        pos = 0.0
-        l = _track_length(t)
-        last_segment = None
-        for sw in _sorted_pos_xml(_track_switches(t)): 
-            new_pos = float(sw.attrib["pos"])
-            (segment_objs,objs) = _partition(objs, 
-                    lambda o: pos <= float(o.attrib["pos"]) <= new_pos)
-            segments.append((TrackRef._from_xml(model,t).at_pos(pos).to_pos(new_pos), 
-                _sorted_pos([PointObject(model,t,obj,len(segments)-1) for obj in segment_objs])))
-            if last_segment is not None:
-                links.append((last_segment,len(segments)-1))
-
-            last_segment = len(segments)-1
-            pos = new_pos
-            (conn_dir,conn_id,conn_ref) = _sw_conn(sw)
-            if conn_dir == Dir.UP: link_to_track.append((last_segment, conn_ref, sw))
-            elif conn_dir == Dir.DOWN: start_refs[conn_id] = (last_segment,sw)
-
-        segments.append((TrackRef._from_xml(model,t).at_pos(pos).to_pos(l), 
-                _sorted_pos([PointObject(model,t,obj,len(segments)-1) for obj in objs])))
-        if last_segment is not None:
-            links.append((last_segment,len(segments)-1))
-
-    return Topology(segments,links)
-
-def _sw_conn(sw):
-    conn = sw.find("railml:connection",ns)
-    if conn is None: raise Exception("Switch connection missing {}".format(sw)) 
-
-    orientation = conn.attrib["orientation"]
-    conn_dir = None
-    if orientation == "outgoing": conn_dir = Dir.UP
-    if orientation == "incoming": conn_dir = Dir.DOWN
-    if conn_dir is None: raise Exception("Switch orientation is missing {}".format(sw))
-
-    return (conn_dir, conn.attrib["id"], conn.attrib["ref"])
-
 objectelementnames = [ 
         ("trackTopology", [
             ("connections","switch"),
@@ -203,18 +152,6 @@ def _track_objects(e):
             if not container: continue
             objs += list(container.findall("railml:{}".format(elementname), ns))
     return objs
-
-#def _track_switches(e):
-#    topo = e.find("railml:trackTopology",ns)
-#    connections = topo.find("railml:connections",ns)
-#    sws = []
-#    if connections: 
-#        for c in connections:
-#            if c.tag != "{{{}}}{}".format(ns["railml"],"switch"):
-#                raise Exception("Connection type not supported: {}".format(c))
-#            sws.append(c)
-#    return sws
-
 
 def _track_length(e):
     topo = e.find("railml:trackTopology",ns)
@@ -251,24 +188,25 @@ class Model:
 
         # Topology
         self._build_graph()
-        self.objects = PointObjectSet([o for (_,os) in self.segments for o in os])
 
     def _build_graph(self):
-        segments = []
+        self.objects = []
         conn_id_objects = {}
         for t in self._xml_tracks.values():
-            objs = [PointObject(self,x,t) for x in _sorted_pos_xml(_track_objects(t)) ]
+            objs = [PointObject(self,t,x) for x in _sorted_pos_xml(_track_objects(t)) ]
+            self.objects += objs
             for o in objs:
                 for (a,b,d) in _object_connections(o._xml):
                     conn_id_objects[a] = (b,d,o)
 
             for o1, o2 in zip(objs, objs[1:]):
                 edge_tag = None
-                dist = (o2.pos() - o1.pos()).length()
-                if "switch" in o1._xml.tag and o1._xml.attrib["orientation"] == "outgoing":
-                    edge_tag = (o1.id, _switch_continue_course(o1._xml))
-                if "switch" in o2._xml.tag and o1._xml.attrib["orientation"] == "incoming":
-                    edge_tag = (o2.id, _switch_continue_course(o2._xml))
+                #dist = (o2.pos() - o1.pos()).length()
+                dist = float(o2._xml.attrib["pos"]) - float(o1._xml.attrib["pos"])
+                if "switch" in o1._xml.tag and _switch_orientation(o1._xml) == Dir.UP: 
+                    edge_tag = (o1.id, _switch_connection_course(o1._xml).opposite())
+                if "switch" in o2._xml.tag and _switch_orientation(o2._xml) == Dir.DOWN:
+                    edge_tag = (o2.id, _switch_connection_course(o2._xml).opposite())
                 o1.up_links.append((o2,dist,edge_tag))
                 o2.down_links.append((o1,dist,edge_tag))
 
@@ -276,30 +214,52 @@ class Model:
         while len(conn_id_objects) > 0:
             id = next(iter(conn_id_objects))
             ref,dir,o1 = conn_id_objects[id]
-            del conn_id_object[id]
+            del conn_id_objects[id]
             id2,dir2,o2 = conn_id_objects[ref]
-            del conn_id_object[ref]
+            del conn_id_objects[ref]
 
-            assert id == i2
+            assert id == id2
             assert dir.opposite() == dir2
 
-            o1.
+            edge_tag = None
+            if "switch" in o1._xml.tag and _switch_orientation(o1._xml) == dir:
+                edge_tag = (o1.id, _switch_connection_course(o1._xml))
+            if "switch" in o2._xml.tag and _switch_orientation(o2._xml) == dir.opposite():
+                edge_tag = (o2.id, _switch_connection_course(o2._xml))
 
+            if dir == Dir.UP:
+                o1.up_links.append((o2,0.0,edge_tag))
+                o2.down_links.append((o1,0.0,edge_tag))
+            if dir == Dir.DOWN:
+                o1.down_links.append((o2,0.0,edge_tag))
+                o2.up_links.append((o1,0.0,edge_tag))
 
-        self.segments = segments
+        assert len(conn_id_objects) == 0
+
+        self.objects = PointObjectSet(self.objects)
 
 
     def translate_pos(self, pos,l):
         return [pos.pos + l,0.0]
+
+def _switch_orientation(e):
+    conn = e.find("railml:connection",ns)
+    if conn.attrib["orientation"] == "outgoing": return Dir.UP
+    if conn.attrib["orientation"] == "incoming": return Dir.DOWN
+    raise Exception("Unknown switch orientation {}".format(e))
+
+def _switch_connection_course(e):
+    conn = e.find("railml:connection",ns)
+    if conn.attrib["course"] == "left": return Side.LEFT
+    if conn.attrib["course"] == "right": return Side.RIGHT
+    raise Exception("Unknown switch course {}".format(e))
 
 def _object_connections(e):
     for conn in e.findall("railml:connection",ns):
         dir = None
         if "trackBegin" in e.tag: dir = Dir.DOWN
         if "trackEnd" in e.tag: dir = Dir.UP
-        if "switch" in e.tag:
-            if e.attrib["orientation"] == "outgoing": dir = Dir.UP
-            if e.attrib["orientation"] == "incoming": dir = Dir.DOWN
+        if "switch" in e.tag: dir = _switch_orientation(e)
         yield (conn.attrib["id"], conn.attrib["ref"],dir)
 
 class PointObject:
@@ -357,13 +317,15 @@ class _Set(abc.Set):
 class PointObjectSet(_Set):
     def __str__(self): return "Set of {} point objects.".format(len(self._items))
 
-    def find(self,func=lambda x: True, type=None, dir=None, location=None, set=None):
-        return next(iter(self.filter(func, type, dir, location, set)), None)
+    def find(self,func=lambda x: True, type=None, dir=None, location=None, set=None,id=None):
+        return next(iter(self.filter(func, type, dir, location, set,id)), None)
 
-    def filter(self,func=lambda x: True, type=None, dir=None, location=None, set=None):
+    def filter(self,func=lambda x: True, type=None, dir=None, location=None, set=None,id=None):
         base = self
         if type is not None:
             base = filter(lambda x: type.lower() in x._xml.tag.lower(), base)
+        if id is not None:
+            base = filter(lambda x: id == x.id, base)
         return PointObjectSet(filter(func, base))
 
     def find_forward(self, set=None, max_dist=None, min_dist=None):
