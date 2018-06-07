@@ -35,28 +35,81 @@ class AreaSet(_Set):
 
     def __str__(self): return "Set of {} areas.".format(len(self._items))
 
-def _mk_sections(delimiters):
-    delims = set([(o,dir) for o in delimiters for dir in [Dir.UP, Dir.DOWN]])
+def _mk_sections(objects):
+    delims = set([Delimiter(o,dir) for o in objects for dir in [Dir.UP, Dir.DOWN]])
     while delims:
-        (delim,dir) = delims.pop()
+        delim = delims.pop()
         section = Area.empty()
-        finished_delims = set([(delim,dir)])
-        new_delims = set([(delim,dir)])
+        finished_delims = set([delim])
+        new_delims = set([delim])
         while new_delims:
-            (delim,dir) = new_delims.pop()
-            for path in delim.find(dir,delimiters):
+            delim= new_delims.pop()
+            for path in delim.object.find(delim.dir,objects):
                 if not (path.end, path.dir.opposite()) in finished_delims:
-                    finished_delims.add((path.end, path.dir.opposite()))
-                    new_delims.add((path.end, path.dir.opposite()))
-                    delims.remove((path.end, path.dir.opposite()))
+                    new = Delimiter(path.end, path.dir.opposite())
+                    finished_delims.add(new)
+                    new_delims.add(new)
+                    delims.remove(new)
                     section = section + path.to_area()
         yield section
 
 class IntervalSet(_Set):
-    pass
+    def __init__(self, xs):
+        xs = list(xs)
+        items = []
+        for t in frozenset([i.track for i in xs]):
+            ys = list(sorted([[i.up().pos_a, i.up().pos_b] for i in xs if i.track == t], key = lambda x: x[0]))
+            t_is = [ys[0]]
+            for x in ys[1:]:
+                if t_is[-1][1] < x[0]:
+                    t_is.append(x)
+                else:
+                    t_is[-1][1] = max(t_is[-1][1], x[1])
+            items += list(map(lambda x: TrackInterval(t, x[0], x[1]), t_is))
+        super().__init__(items)
+
+    def __le__(self, other): return self.__eq__(other) or self.__lt__(other)
+    def __ge__(self, other): return self.__eq__(other) or self.__gt__(other)
+    def __gt__(self,other): return other.__lt__(self)
+
+    def __eq__(self,other): 
+        return list(sorted(self._items)) == list(sorted(other._items))
+
+    def __ne__(self,other): return not (self == other)
+
+    def __hash__(self): return self._items.__hash__()
+
+    def __lt__(self, other):
+        strict = False
+        for t in frozenset([x.track for x in self._items]):
+            ais = [(x.pos_a, x.pos_b) for x in self._items if x.track == t]
+            bis = [(x.pos_a, x.pos_b) for x in other._items if x.track == t]
+
+            all_ps = [p for p in [x.pos_a, x.pos_b] for x in ais] + \
+                     [p for p in [x.pos_a, x.pos_b] for x in bis]
+
+            ais = frozenset([i for i in interval_split(a,b,all_ps) for a,b in ais])
+            bis = frozenset([i for i in interval_split(a,b,all_ps) for a,b in bis])
+
+            if ais > bis: return False
+            if ais < bis: strict = True
+
+        return strict
+
+def interval_split(a,b,split_ps):
+    ps = [a] + [s for s in sorted(split_ps) if a < s < b] + [b]
+    return [(p1,p2) for p1,p2 in zip(ps,ps[1:])]
+
 
 class DelimiterSet(_Set):
     pass
+
+
+class SwitchState(namedtuple('SwitchState',["object","side"])): 
+    def reversed(self): return self
+
+class Delimiter(namedtuple('Delimiter',["object","dir"])): pass
+class UnknownConnection(namedtuple('UnknownConnection',[])): pass
 
 class Area(namedtuple('Area',["delimiters","intervals"])):
     def empty(): return Area(DelimiterSet([]),IntervalSet([]))
@@ -67,19 +120,49 @@ class Area(namedtuple('Area',["delimiters","intervals"])):
     def __and__(self,other):
         return self.intervals & other.intervals
 
-class Path(namedtuple('Path',["dir", "start","links","end"])):
-    def to_area(self):
-        delimiters = DelimiterSet([(self.start,self.dir),(self.end,self.dir.opposite())])
-        intervals = self.to_intervals()
-        return Area(delimiters, intervals)
+class Path(abc.Collection):
+    def __init__(self, seq):
+        self._items = list(seq)
 
-    def to_intervals(self):
-        pos = self.start.pos()
-        links = list(self.links)
-        while links:
-            link = links.pop()
-            self.dir
-        return IntervalSet([])
+    def interval(interval): return Path([interval])
+    def unknownconnection(): return Path([UnknownConnection()])
+    def switchstate(state): return Path([state])
+    def empty(): return Path([])
+
+    def __add__(self, other):
+        if not self._items: return other
+        if not other._items: return self
+
+        prev = self._items[-1]
+        next = other._items[0]
+
+        if isinstance(prev,DirectedTrackInterval) and isinstance(next,DirectedTrackInterval):
+            return Path(self._items[:-1] + [prev.append(next)] + other._items[1:])
+        else:
+            return Path(self._items + other._items)
+
+    def reversed(self):
+        return Path(map(lambda x: x.reversed(), reversed(self._items)))
+
+    def length(self):
+        return sum([e.length() for e in self._items if isinstance(e, DirectedTrackInterval)])
+
+    def to_intervalset(self):
+        return IntervalSet([e for e in self._items if isinstance(e, DirectedTrackInterval)])
+
+    def __contains__(self, item): return self._items.__contains__(item)
+    def __iter__(self): return self._items.__iter__()
+    def __len__(self): return len(self._items)
+
+    def __str__(self):
+        return "Path with {} elements, length {} m".format(len(self._items), self.length())
+        
+
+class DelimitedPath(namedtuple('DelimitedPath',["dir", "start","links","end"])):
+    def to_area(self):
+        delimiters = DelimiterSet([Delimiter(self.start,self.dir),
+                                   Delimiter(self.end,  self.dir.opposite())])
+        return Area(delimiters, self.links.to_intervalset())
 
 class TrackRef(namedtuple('TrackRef',["model","id","name"])):
     def __str__(self):
@@ -98,6 +181,34 @@ class TrackRef(namedtuple('TrackRef',["model","id","name"])):
     def at_pos(self,pos):
         return TrackPos(self,pos)
 
+class TrackInterval(namedtuple('TrackInterval',["track","pos_a","pos_b"])):
+    def length(self):
+        return abs(self.pos_a - self.pos_b)
+
+    def up(self): return self
+
+class DirectedTrackInterval(namedtuple('DirectedTrackInterval',["track","pos_a","pos_b"])):
+    def reversed(self):
+        return DirectedTrackInterval(self.track, self.pos_b, self.pos_a)
+
+    def length(self):
+        return abs(self.pos_a - self.pos_b)
+
+    def append(self, other):
+        if not (self.pos_b == other.pos_a and self.track == other.track):
+            raise Exception("Cannot append intervals {} {}".format(self,other))
+        return DirectedTrackInterval(self.track,self.pos_a,other.pos_b)
+
+    def contains(self,other):
+        return (self.pos.track == other.track and
+                self.pos.pos <= other.pos and
+                self.pos.pos + self.length >= other.pos)
+
+    def up(self):
+        if self.pos_a > self.pos_b:
+            return TrackInterval(self.track, self.pos_b, self.pos_a)
+        else:
+            return TrackInterval(self.track, self.pos_a, self.pos_b)
 
 class TrackPos(namedtuple('TrackPos',["track","pos"])):
     """Position on a track in the input model"""
@@ -115,10 +226,9 @@ class TrackPos(namedtuple('TrackPos',["track","pos"])):
             return self.track.model.translate_pos(self, -x)
         else:
             raise ArithmeticError("RHS operand must be a number")
+
     def to_pos(self,pos_b):
-        pos_a = self.pos
-        if pos_a > pos_b: pos_a,pos_b = pos_b,pos_a
-        return TrackInterval(TrackPos(self.track,pos_a), pos_b - pos_a)
+        return DirectedTrackInterval(self.track, self.pos, pos_b)
 
 TrackPos.track.__doc__ = "Track reference"
 TrackPos.pos.__doc__ = "Distance from start of track"
@@ -154,11 +264,6 @@ class Side(Enum):
 class DirectedTrackPos(namedtuple('DirectedTrackPos',["trackpos","dir"])):
     pass
 
-class TrackInterval(namedtuple('TrackInterval',["pos","length"])):
-    def contains(self,other):
-        return (self.pos.track == other.track and
-                self.pos.pos <= other.pos and
-                self.pos.pos + self.length >= other.pos)
 
 ns = {'railml': 'http://www.railml.org/schemas/2013',
         'dc': 'http://purl.org/dc/elements/1.1/'
@@ -223,14 +328,15 @@ class Model:
     """Railway infrastructure model (tracks and trackside objects)"""
 
     def find_paths_directed(self, dir, start_obj, goal_set, max_dist, min_dist):
-        stack = [(start_obj, [], 0.0)]
+        stack = [(start_obj, Path.empty())]
         while stack:
-            obj,links,l = stack.pop()
-            for next_obj, dl, tags in obj.get_links(dir):
-                if next_obj in goal_set and min_dist <= l + dl <= max_dist:
-                    yield Path(dir, start_obj, links + tags, next_obj)
-                elif l+dl <= max_dist:
-                    stack.append((next_obj, links + tags, l+dl))
+            obj,links = stack.pop()
+            for next_obj, tags in obj.get_links(dir):
+                new_path = links + tags
+                if next_obj in goal_set and min_dist <= new_path.length() <= max_dist:
+                    yield DelimitedPath(dir, start_obj, new_path, next_obj)
+                elif new_path.length() <= max_dist:
+                    stack.append((next_obj, new_path))
 
 
     def __init__(self, filename):
@@ -266,15 +372,13 @@ class Model:
                     conn_id_objects[a] = (b,d,o)
 
             for o1, o2 in zip(objs, objs[1:]):
-                edge_tag = []
-                #dist = (o2.pos() - o1.pos()).length()
-                dist = float(o2._xml.attrib["pos"]) - float(o1._xml.attrib["pos"])
+                path = Path.interval(o1.pos().to_pos(o2.pos().pos))
                 if "switch" in o1._xml.tag and _switch_orientation(o1._xml) == Dir.UP: 
-                    edge_tag.append((o1.id, _switch_connection_course(o1._xml).opposite()))
+                    path = Path.switchstate(SwitchState(o1, _switch_connection_course(o1._xml).opposite())) + path
                 if "switch" in o2._xml.tag and _switch_orientation(o2._xml) == Dir.DOWN:
-                    edge_tag.append((o2.id, _switch_connection_course(o2._xml).opposite()))
-                o1.up_links.append((o2,dist,edge_tag))
-                o2.down_links.append((o1,dist,edge_tag))
+                    path = path + Path.switchstate(SwitchState(o2, _switch_connection_course(o2._xml).opposite()))
+                o1.up_links.append((o2,path))
+                o2.down_links.append((o1,path.reversed()))
 
         # resolve connections
         while conn_id_objects:
@@ -287,18 +391,20 @@ class Model:
             assert id == id2
             assert dir.opposite() == dir2
 
-            edge_tag = []
+            path = Path.empty()
             if "switch" in o1._xml.tag and _switch_orientation(o1._xml) == dir:
-                edge_tag.append((o1.id, _switch_connection_course(o1._xml)))
-            if "switch" in o2._xml.tag and _switch_orientation(o2._xml) == dir.opposite():
-                edge_tag.append((o2.id, _switch_connection_course(o2._xml)))
+                path = Path.switchstate(SwitchState(o1, _switch_connection_course(o1._xml))) + path
+            elif "switch" in o2._xml.tag and _switch_orientation(o2._xml) == dir.opposite():
+                path = path + Path.switchstate(SwitchState(o2, _switch_connection_course(o2._xml)))
+            else:
+                path = path + Path.unknownconnection()
 
             if dir == Dir.UP:
-                o1.up_links.append((o2,0.0,edge_tag))
-                o2.down_links.append((o1,0.0,edge_tag))
+                o1.up_links.append((o2,path))
+                o2.down_links.append((o1,path.reversed()))
             if dir == Dir.DOWN:
-                o1.down_links.append((o2,0.0,edge_tag))
-                o2.up_links.append((o1,0.0,edge_tag))
+                o1.down_links.append((o2,path))
+                o2.up_links.append((o1,path.reversed()))
 
         self.objects = PointObjectSet(self.objects)
 
