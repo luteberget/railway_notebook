@@ -16,6 +16,71 @@ from collections import abc
 import pandas as pd
 tbl = pd.DataFrame
 
+empty = set()
+
+class _Set(abc.Set, abc.Hashable):
+    def __init__(self, l): self._items = frozenset(l)
+    def __contains__(self,item): return item in self._items
+    def __iter__(self): return self._items.__iter__()
+    def __len__(self): return len(self._items)
+    def __hash__(self): return self._items.__hash__()
+
+class AreaSet(_Set):
+    def from_delimiters(set):
+        return AreaSet(_mk_sections(set))
+
+    def filter(self, func=None):
+        if func is None: func = lambda x: True
+        return AreaSet(filter(func, self._items))
+
+    def __str__(self): return "Set of {} areas.".format(len(self._items))
+
+def _mk_sections(delimiters):
+    delims = set([(o,dir) for o in delimiters for dir in [Dir.UP, Dir.DOWN]])
+    while delims:
+        (delim,dir) = delims.pop()
+        section = Area.empty()
+        finished_delims = set([(delim,dir)])
+        new_delims = set([(delim,dir)])
+        while new_delims:
+            (delim,dir) = new_delims.pop()
+            for path in delim.find(dir,delimiters):
+                if not (path.end, path.dir.opposite()) in finished_delims:
+                    finished_delims.add((path.end, path.dir.opposite()))
+                    new_delims.add((path.end, path.dir.opposite()))
+                    delims.remove((path.end, path.dir.opposite()))
+                    section = section + path.to_area()
+        yield section
+
+class IntervalSet(_Set):
+    pass
+
+class DelimiterSet(_Set):
+    pass
+
+class Area(namedtuple('Area',["delimiters","intervals"])):
+    def empty(): return Area(DelimiterSet([]),IntervalSet([]))
+
+    def __add__(self, other):
+        return Area(self.delimiters | other.delimiters, self.intervals | other.intervals)
+
+    def __and__(self,other):
+        return self.intervals & other.intervals
+
+class Path(namedtuple('Path',["dir", "start","links","end"])):
+    def to_area(self):
+        delimiters = DelimiterSet([(self.start,self.dir),(self.end,self.dir.opposite())])
+        intervals = self.to_intervals()
+        return Area(delimiters, intervals)
+
+    def to_intervals(self):
+        pos = self.start.pos()
+        links = list(self.links)
+        while links:
+            link = links.pop()
+            self.dir
+        return IntervalSet([])
+
 class TrackRef(namedtuple('TrackRef',["model","id","name"])):
     def __str__(self):
         return "Track: id={} name=\"{}\"".format(self.id, self.name)
@@ -159,11 +224,11 @@ class Model:
 
     def find_paths_directed(self, dir, start_obj, goal_set, max_dist, min_dist):
         stack = [(start_obj, [], 0.0)]
-        while len(stack) > 0:
+        while stack:
             obj,links,l = stack.pop()
             for next_obj, dl, tags in obj.get_links(dir):
                 if next_obj in goal_set and min_dist <= l + dl <= max_dist:
-                    yield (start_obj, links + tags, next_obj)
+                    yield Path(dir, start_obj, links + tags, next_obj)
                 elif l+dl <= max_dist:
                     stack.append((next_obj, links + tags, l+dl))
 
@@ -212,7 +277,7 @@ class Model:
                 o2.down_links.append((o1,dist,edge_tag))
 
         # resolve connections
-        while len(conn_id_objects) > 0:
+        while conn_id_objects:
             id = next(iter(conn_id_objects))
             ref,dir,o1 = conn_id_objects[id]
             del conn_id_objects[id]
@@ -235,10 +300,7 @@ class Model:
                 o1.down_links.append((o2,0.0,edge_tag))
                 o2.up_links.append((o1,0.0,edge_tag))
 
-        assert len(conn_id_objects) == 0
-
         self.objects = PointObjectSet(self.objects)
-
 
     def translate_pos(self, pos,l):
         return [pos.pos + l,0.0]
@@ -266,6 +328,9 @@ def _object_connections(e):
 class PointObject:
     def find_forward(self, set=None, max_dist=inf, min_dist=0.0):
         return self.model.find_paths_directed(self.dir(), self, set, max_dist, min_dist)
+
+    def find(self, dir, set=None, max_dist=inf, min_dist=0.0):
+        return self.model.find_paths_directed(dir, self, set, max_dist, min_dist)
 
     def pos(self):
         return TrackRef._from_xml(self.model,self._xml_track).at_pos(float(self._xml.attrib["pos"]))
@@ -298,11 +363,6 @@ class PointObject:
         if dir == Dir.DOWN: return self.down_links
         raise Exception()
 
-class _Set(abc.Set):
-    def __init__(self, l): self._items = set(l)
-    def __contains__(self,item): return item in self._items
-    def __iter__(self): return self._items.__iter__()
-    def __len__(self): return len(self._items)
 
 #TODO check type of objects in constructor?
 class PointObjectSet(_Set):
