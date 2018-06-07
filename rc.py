@@ -68,6 +68,17 @@ class IntervalSet(_Set):
             items += list(map(lambda x: TrackInterval(t, x[0], x[1]), t_is))
         super().__init__(items)
 
+    def __and__(self, other):
+        z = set()
+        for t in frozenset([x.track for x in self._items]):
+            ais = [(x.pos_a, x.pos_b) for x in self._items if x.track == t]
+            bis = [(x.pos_a, x.pos_b) for x in other._items if x.track == t]
+            all_ps = [p for x in (ais+bis) for p in x]
+            ais = frozenset([i for a,b in ais for i in interval_split(a,b,all_ps)])
+            bis = frozenset([i for a,b in bis for i in interval_split(a,b,all_ps)])
+            z.update(map(lambda x: TrackInterval(t, x[0], x[1]), ais & bis))
+        return IntervalSet(z)
+
     def __le__(self, other): return self.__eq__(other) or self.__lt__(other)
     def __ge__(self, other): return self.__eq__(other) or self.__gt__(other)
     def __gt__(self,other): return other.__lt__(self)
@@ -80,21 +91,22 @@ class IntervalSet(_Set):
     def __hash__(self): return self._items.__hash__()
 
     def __lt__(self, other):
+        if len(self) == 0 and len(other) > 0: return True
         strict = False
         for t in frozenset([x.track for x in self._items]):
             ais = [(x.pos_a, x.pos_b) for x in self._items if x.track == t]
             bis = [(x.pos_a, x.pos_b) for x in other._items if x.track == t]
-
-            all_ps = [p for p in [x.pos_a, x.pos_b] for x in ais] + \
-                     [p for p in [x.pos_a, x.pos_b] for x in bis]
-
-            ais = frozenset([i for i in interval_split(a,b,all_ps) for a,b in ais])
-            bis = frozenset([i for i in interval_split(a,b,all_ps) for a,b in bis])
+            all_ps = [p for x in (ais+bis) for p in x]
+            ais = frozenset([i for a,b in ais for i in interval_split(a,b,all_ps)])
+            bis = frozenset([i for a,b in bis for i in interval_split(a,b,all_ps)])
 
             if ais > bis: return False
             if ais < bis: strict = True
 
         return strict
+
+    def contains(self, pos):
+        return any(x.contains(pos) for x in self._items)
 
 def interval_split(a,b,split_ps):
     ps = [a] + [s for s in sorted(split_ps) if a < s < b] + [b]
@@ -119,6 +131,8 @@ class Area(namedtuple('Area',["delimiters","intervals"])):
 
     def __and__(self,other):
         return self.intervals & other.intervals
+
+    def contains(self, pos): return self.intervals.contains(pos)
 
 class Path(abc.Collection):
     def __init__(self, seq):
@@ -150,6 +164,9 @@ class Path(abc.Collection):
     def to_intervalset(self):
         return IntervalSet([e for e in self._items if isinstance(e, DirectedTrackInterval)])
 
+    def switchstates(self):
+        return list([e for e in self._items if isinstance(e, SwitchState)])
+
     def __contains__(self, item): return self._items.__contains__(item)
     def __iter__(self): return self._items.__iter__()
     def __len__(self): return len(self._items)
@@ -163,6 +180,8 @@ class DelimitedPath(namedtuple('DelimitedPath',["dir", "start","links","end"])):
         delimiters = DelimiterSet([Delimiter(self.start,self.dir),
                                    Delimiter(self.end,  self.dir.opposite())])
         return Area(delimiters, self.links.to_intervalset())
+
+    def switchstates(self): return self.links.switchstates()
 
 class TrackRef(namedtuple('TrackRef',["model","id","name"])):
     def __str__(self):
@@ -187,6 +206,9 @@ class TrackInterval(namedtuple('TrackInterval',["track","pos_a","pos_b"])):
 
     def up(self): return self
 
+    def contains(self, pos):
+        return self.track == pos.track and self.pos_a <= pos.pos <= self.pos_b
+
 class DirectedTrackInterval(namedtuple('DirectedTrackInterval',["track","pos_a","pos_b"])):
     def reversed(self):
         return DirectedTrackInterval(self.track, self.pos_b, self.pos_a)
@@ -199,10 +221,8 @@ class DirectedTrackInterval(namedtuple('DirectedTrackInterval',["track","pos_a",
             raise Exception("Cannot append intervals {} {}".format(self,other))
         return DirectedTrackInterval(self.track,self.pos_a,other.pos_b)
 
-    def contains(self,other):
-        return (self.pos.track == other.track and
-                self.pos.pos <= other.pos and
-                self.pos.pos + self.length >= other.pos)
+    def contains(self, pos):
+        return self.track == pos.track and self.pos_a <= pos.pos <= self.pos_b
 
     def up(self):
         if self.pos_a > self.pos_b:
@@ -469,6 +489,9 @@ class PointObject:
         if dir == Dir.DOWN: return self.down_links
         raise Exception()
 
+    def straight(self):
+        if not "switch" in self._xml.tag: raise Exception("Not a switch")
+        return _switch_connection_course(self._xml).opposite()
 
 #TODO check type of objects in constructor?
 class PointObjectSet(_Set):
@@ -477,18 +500,23 @@ class PointObjectSet(_Set):
     def find(self,func=lambda x: True, type=None, dir=None, location=None, set=None,id=None):
         return next(iter(self.filter(func, type, dir, location, set,id)), None)
 
+
     def filter(self,func=lambda x: True, type=None, dir=None, location=None, set=None,id=None):
         base = self
         if type is not None:
             base = filter(lambda x: type.lower() in x._xml.tag.lower(), base)
         if id is not None:
             base = filter(lambda x: id == x.id, base)
+        if location is not None:
+            base = filter(lambda x: location.contains(x.pos()), base)
+        if dir is not None:
+            base = filter(lambda x: x.dir() == dir, base)
         return PointObjectSet(filter(func, base))
 
     def find_forward(self, set=None, max_dist=inf, min_dist=0.0):
         if not callable(set): set = lambda x: set
-        return [path for start in self \
-                     for path in start.find_forward(set(start), max_dist, min_dist)]
+        return frozenset([path for start in self \
+                     for path in start.find_forward(set(start), max_dist, min_dist)])
 
     def _repr_html_(self):
         return tbl(list(self._items))._repr_html_()
