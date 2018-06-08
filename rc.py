@@ -119,6 +119,7 @@ class DelimiterSet(_Set):
 
 class SwitchState(namedtuple('SwitchState',["object","side"])): 
     def reversed(self): return self
+    def length(self): return 0.0
 
 class Delimiter(namedtuple('Delimiter',["object","dir"])): pass
 class UnknownConnection(namedtuple('UnknownConnection',[])): pass
@@ -159,7 +160,7 @@ class Path(abc.Collection):
         return Path(map(lambda x: x.reversed(), reversed(self._items)))
 
     def length(self):
-        return sum([e.length() for e in self._items if isinstance(e, DirectedTrackInterval)])
+        return sum([e.length() for e in self._items])
 
     def to_intervalset(self):
         return IntervalSet([e for e in self._items if isinstance(e, DirectedTrackInterval)])
@@ -173,15 +174,44 @@ class Path(abc.Collection):
 
     def __str__(self):
         return "Path with {} elements, length {} m".format(len(self._items), self.length())
-        
 
-class DelimitedPath(namedtuple('DelimitedPath',["dir", "start","links","end"])):
+    def truncate(self, l):
+        o = self
+        untruncate = []
+        while Path(o._items[:-1]).length() >= l:
+            o = Path(o._items[:-1]) 
+            untruncate.append(o._items[-1])
+        if o.length() > l:
+            i, dl = o._items[-1], o.length() - l
+            new_interval = DirectedTrackInterval(i.track, i.pos_a, i.pos_b - dl*i.dir().factor())
+            o = Path(o._items[:-1] + [new_interval])
+            untruncate.append(DirectedTrackInterval(i.track, i.pos_b - dl*i.dir().factor(), i.pos_b))
+        o._untruncate_items = list(reversed(untruncate))
+        return o
+
+    def _extend_linear(self, l):
+        o = self
+        untruncate = list(self._untruncate_items)
+        #while untruncate and 
+            
+
+class DelimitedPath(namedtuple('DelimitedPath',["dir", "start","path","end"])):
     def to_area(self):
         delimiters = DelimiterSet([Delimiter(self.start,self.dir),
                                    Delimiter(self.end,  self.dir.opposite())])
-        return Area(delimiters, self.links.to_intervalset())
+        return Area(delimiters, self.path.to_intervalset())
 
-    def switchstates(self): return self.links.switchstates()
+    def switchstates(self): return self.path.switchstates()
+
+    def extend_forward(self, max_dist=inf, min_dist=0.0):
+        return None
+        extension_paths = self.end.paths_forward(max_dist, min_dist)
+
+    def __add__(self, other):
+        if isinstance(other, numbers.Number):
+            return self.extend_forward(other)
+        else:
+            raise ArithmeticError("RHS operand must be a number")
 
 class TrackRef(namedtuple('TrackRef',["model","id","name"])):
     def __str__(self):
@@ -224,11 +254,16 @@ class DirectedTrackInterval(namedtuple('DirectedTrackInterval',["track","pos_a",
     def contains(self, pos):
         return self.track == pos.track and self.pos_a <= pos.pos <= self.pos_b
 
+    def dir(self):
+        if self.pos_a > self.pos_b: return Dir.DOWN
+        return Dir.UP
+
     def up(self):
         if self.pos_a > self.pos_b:
             return TrackInterval(self.track, self.pos_b, self.pos_a)
         else:
             return TrackInterval(self.track, self.pos_a, self.pos_b)
+
 
 class TrackPos(namedtuple('TrackPos',["track","pos"])):
     """Position on a track in the input model"""
@@ -256,6 +291,8 @@ TrackPos.pos.__doc__ = "Distance from start of track"
 class Dir(Enum):
     UP = 1
     DOWN = 2
+
+    def __neg__(self): return self.opposite()
 
     def from_string(s):
         if s.lower() == "up": return Dir.UP
@@ -347,7 +384,7 @@ def _track_length(e):
 class Model:
     """Railway infrastructure model (tracks and trackside objects)"""
 
-    def find_paths_directed(self, dir, start_obj, goal_set, max_dist, min_dist):
+    def find_objects_directed(self, dir, start_obj, goal_set, max_dist, min_dist):
         stack = [(start_obj, Path.empty())]
         while stack:
             obj,links = stack.pop()
@@ -358,6 +395,21 @@ class Model:
                 elif new_path.length() <= max_dist:
                     stack.append((next_obj, new_path))
 
+    def paths_directed(self, dir, start_obj, max_dist, min_dist):
+        stack = [(start_obj, Path.empty())]
+        while stack:
+            obj,path = stack.pop()
+            nexts = list(obj.get_links(dir))
+            if len(nexts) == 0:
+                if min_dist <= path.length():
+                    yield DelimitedPath(dir, start_obj, path, None)
+            else:
+                for next_obj, next_path in nexts:
+                    new_path = path + next_path
+                    if new_path.length() < max_dist:
+                        stack.append((next_obj, new_path))
+                    else:
+                        yield DelimitedPath(dir, start_obj, new_path.truncate(max_dist), next_obj)
 
     def __init__(self, filename):
         """Read infrastructure model from XML file."""
@@ -453,10 +505,13 @@ def _object_connections(e):
 
 class PointObject:
     def find_forward(self, set=None, max_dist=inf, min_dist=0.0):
-        return self.model.find_paths_directed(self.dir(), self, set, max_dist, min_dist)
+        return self.model.find_objects_directed(self.dir(), self, set, max_dist, min_dist)
+
+    def paths_forward(self, max_dist=inf, min_dist=0.0):
+        return self.model.paths_directed(self.dir(), self, max_dist, min_dist)
 
     def find(self, dir, set=None, max_dist=inf, min_dist=0.0):
-        return self.model.find_paths_directed(dir, self, set, max_dist, min_dist)
+        return self.model.find_objects_directed(dir, self, set, max_dist, min_dist)
 
     def pos(self):
         return TrackRef._from_xml(self.model,self._xml_track).at_pos(float(self._xml.attrib["pos"]))
@@ -500,6 +555,10 @@ class PointObjectSet(_Set):
     def find(self,func=lambda x: True, type=None, dir=None, location=None, set=None,id=None):
         return next(iter(self.filter(func, type, dir, location, set,id)), None)
 
+    def __add__(self,other):
+        if isinstance(other, numbers.Number):
+            return self.paths_forward(other)
+        raise Exception("Cannot add PointObjectSet and {}".format(other))
 
     def filter(self,func=lambda x: True, type=None, dir=None, location=None, set=None,id=None):
         base = self
@@ -517,6 +576,9 @@ class PointObjectSet(_Set):
         if not callable(set): set = lambda x: set
         return frozenset([path for start in self \
                      for path in start.find_forward(set(start), max_dist, min_dist)])
+
+    def paths_forward(self, max_dist=inf, min_dist=0.0):
+        return frozenset([path for start in self for path in start.paths_forward(max_dist,min_dist)])
 
     def _repr_html_(self):
         return tbl(list(self._items))._repr_html_()
