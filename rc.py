@@ -16,6 +16,8 @@ from collections import abc
 import pandas as pd
 tbl = pd.DataFrame
 
+from functools import reduce
+
 empty = set()
 
 class _Set(abc.Set, abc.Hashable):
@@ -108,6 +110,9 @@ class IntervalSet(_Set):
     def contains(self, pos):
         return any(x.contains(pos) for x in self._items)
 
+    def length(self):
+        return sum(x.length() for x in self._items)
+
 def interval_split(a,b,split_ps):
     ps = [a] + [s for s in sorted(split_ps) if a < s < b] + [b]
     return [(p1,p2) for p1,p2 in zip(ps,ps[1:])]
@@ -121,7 +126,11 @@ class SwitchState(namedtuple('SwitchState',["object","side"])):
     def reversed(self): return self
     def length(self): return 0.0
 
-class Delimiter(namedtuple('Delimiter',["object","dir"])): pass
+class Delimiter(namedtuple('Delimiter',["object","dir"])): 
+    pass
+    #def find_outward(self, set=None, max_dist=inf, min_dist=0.0):
+
+
 class UnknownConnection(namedtuple('UnknownConnection',[])): pass
 
 class Area(namedtuple('Area',["delimiters","intervals"])):
@@ -137,12 +146,14 @@ class Area(namedtuple('Area',["delimiters","intervals"])):
 
 class Path(abc.Collection):
     def __init__(self, seq):
+        self._last_edge = None
         self._items = list(seq)
 
     def interval(interval): return Path([interval])
     def unknownconnection(): return Path([UnknownConnection()])
     def switchstate(state): return Path([state])
     def empty(): return Path([])
+    def point(pos): return Path.interval(DirectedTrackInterval.point(pos))
 
     def __add__(self, other):
         if not self._items: return other
@@ -155,6 +166,9 @@ class Path(abc.Collection):
             return Path(self._items[:-1] + [prev.append(next)] + other._items[1:])
         else:
             return Path(self._items + other._items)
+
+    def contains(self, obj):
+        return any(i for i in self._items if isinstance(i, DirectedTrackInterval) and i.contains(obj.pos()))
 
     def reversed(self):
         return Path(map(lambda x: x.reversed(), reversed(self._items)))
@@ -175,25 +189,30 @@ class Path(abc.Collection):
     def __str__(self):
         return "Path with {} elements, length {} m".format(len(self._items), self.length())
 
+
+#TODO can currently only truncate along last added edge (self.end must not change)
     def truncate(self, l):
+        #print("TRUNCATE {} {}".format(l,self))
         o = self
         untruncate = []
-        while Path(o._items[:-1]).length() >= l:
+        while len([i for i in o._items[:-1] if isinstance(i,DirectedTrackInterval)]) >= 1 and Path(o._items[:-1]).length() > l:
             o = Path(o._items[:-1]) 
-            untruncate.append(o._items[-1])
         if o.length() > l:
             i, dl = o._items[-1], o.length() - l
             new_interval = DirectedTrackInterval(i.track, i.pos_a, i.pos_b - dl*i.dir().factor())
             o = Path(o._items[:-1] + [new_interval])
-            untruncate.append(DirectedTrackInterval(i.track, i.pos_b - dl*i.dir().factor(), i.pos_b))
-        o._untruncate_items = list(reversed(untruncate))
+            o._last_edge = i
+        #print("LAST {}".format(o._last_edge))
         return o
 
     def _extend_linear(self, l):
-        o = self
-        untruncate = list(self._untruncate_items)
-        #while untruncate and 
-            
+        path_edges = [e for e in self._items if isinstance(e, DirectedTrackInterval)]
+        if self._last_edge is None or len(path_edges) < 1: return (self, 0.0)
+        i = path_edges[-1]
+        if i.pos_b + l > self._last_edge.pos_b:
+            return ((self + Path.interval(DirectedTrackInterval(i.track, i.pos_b, self._last_edge.pos_b))), (self._last_edge.pos_b - i.pos_b))
+        else:
+            return ((self + Path.interval(DirectedTrackInterval(i.track, i.pos_b, i.pos_b + l))), l)
 
 class DelimitedPath(namedtuple('DelimitedPath',["dir", "start","path","end"])):
     def to_area(self):
@@ -203,13 +222,41 @@ class DelimitedPath(namedtuple('DelimitedPath',["dir", "start","path","end"])):
 
     def switchstates(self): return self.path.switchstates()
 
+    def skip_fouled(self):
+        # TODO
+        return self
+
+    def length(self): return self.path.length()
+
+    def extend_forward_objects(self, goal_set, max_dist=inf, min_dist=0.0):
+        path,dl = self.path._extend_linear(max_dist)
+        min_dist -= dl
+        max_dist -= dl
+
+        if self.end is not None:
+            extension_paths = list(self.end.model.find_objects_directed(self.dir, self.end,  goal_set, max_dist, min_dist))
+            return [DelimitedPath(self.dir, self.start, path + p.path, p.end) for p in extension_paths]
+        else:
+            return [self] if not (min_dist > 0.0) else []
+
+
     def extend_forward(self, max_dist=inf, min_dist=0.0):
-        return None
-        extension_paths = self.end.paths_forward(max_dist, min_dist)
+        kjeks = self.path._extend_linear(max_dist)
+        path,dl = kjeks
+        min_dist -= dl
+        max_dist -= dl
+
+        #print("PATH {} END {}", 
+        if self.end is not None:
+            extension_paths = list(self.end.model.paths_directed(self.dir, self.end, max_dist, min_dist))
+            return [DelimitedPath(self.dir, self.start, path + p.path, p.end) for p in extension_paths]
+        else:
+            return [self] if not (min_dist > 0.0) else []
 
     def __add__(self, other):
         if isinstance(other, numbers.Number):
-            return self.extend_forward(other)
+            paths = self.extend_forward(other)
+            return reduce(lambda a1,a2: a1 | a2, [p.to_area() for p in paths])
         else:
             raise ArithmeticError("RHS operand must be a number")
 
@@ -243,6 +290,8 @@ class DirectedTrackInterval(namedtuple('DirectedTrackInterval',["track","pos_a",
     def reversed(self):
         return DirectedTrackInterval(self.track, self.pos_b, self.pos_a)
 
+    def point(pos): return DirectedTrackInterval(pos.track, pos.pos, pos.pos)
+
     def length(self):
         return abs(self.pos_a - self.pos_b)
 
@@ -252,7 +301,7 @@ class DirectedTrackInterval(namedtuple('DirectedTrackInterval',["track","pos_a",
         return DirectedTrackInterval(self.track,self.pos_a,other.pos_b)
 
     def contains(self, pos):
-        return self.track == pos.track and self.pos_a <= pos.pos <= self.pos_b
+        return self.track == pos.track and self.up().pos_a <= pos.pos <= self.up().pos_b
 
     def dir(self):
         if self.pos_a > self.pos_b: return Dir.DOWN
@@ -406,10 +455,37 @@ class Model:
             else:
                 for next_obj, next_path in nexts:
                     new_path = path + next_path
-                    if new_path.length() < max_dist:
+                    if new_path.length() <= max_dist:
                         stack.append((next_obj, new_path))
                     else:
                         yield DelimitedPath(dir, start_obj, new_path.truncate(max_dist), next_obj)
+
+# TODO denne kan slettes?
+    def find_objects_clearance(self, start_dir, start_obj, max_dist, min_dist):
+        queue = [(dir, start_obj, Path.empty())]
+        while queue:
+            dir, obj, path = queue.pop(0)
+            for next_obj, tags in obj.get_links(dir):
+                new_path = links + tags
+                if next_obj in goal_set and min_dist <= new_path.length() <= max_dist:
+                    yield DelimtiedPath(dir, start_obj, new_path, next_obj)
+                elif new_path.length() <= max_dist:
+                    queue.append((dir, next_obj, new_path))
+            for next_obj in obj.clearance_links:
+                queue.append((-dir, next_obj, path))
+
+    def find_objects_undirected(self, dir, start_obj, goal_set, max_dist, min_dist):
+        stack = list(start_obj.get_links(dir))
+        while stack:
+            obj, path = stack.pop()
+            for next_obj, next_path in obj.get_links(dir) + obj.get_links(-dir):
+                if path.contains(next_obj): continue
+                new_path = path + next_path 
+                if next_obj in goal_set and min_dist <= new_path.length() <= max_dist:
+                    yield DelimitedPath(dir, start_obj, new_path, next_obj)
+                elif new_path.length() <= max_dist:
+                    stack.append((next_obj, new_path))
+
 
     def __init__(self, filename):
         """Read infrastructure model from XML file."""
@@ -507,6 +583,9 @@ class PointObject:
     def find_forward(self, set=None, max_dist=inf, min_dist=0.0):
         return self.model.find_objects_directed(self.dir(), self, set, max_dist, min_dist)
 
+    def find_forward_undirected(self, set=None, max_dist=inf, min_dist=0.0):
+        return self.model.find_objects_undirected(self.dir(), self, set, max_dist, min_dist)
+
     def paths_forward(self, max_dist=inf, min_dist=0.0):
         return self.model.paths_directed(self.dir(), self, max_dist, min_dist)
 
@@ -516,7 +595,12 @@ class PointObject:
     def pos(self):
         return TrackRef._from_xml(self.model,self._xml_track).at_pos(float(self._xml.attrib["pos"]))
 
+    def delimiters(self,dir):
+        for obj,path in self.get_links(dir):
+            yield DelimitedPath(dir, None, path.truncate(0.0), obj)
+
     def dir(self):
+        if "switch" in self._xml.tag: return _switch_orientation(self._xml)
         return Dir.from_string(self._xml.attrib["dir"])
 
     def __getattr__(self, name):
@@ -542,7 +626,7 @@ class PointObject:
     def get_links(self, dir):
         if dir == Dir.UP: return self.up_links
         if dir == Dir.DOWN: return self.down_links
-        raise Exception()
+        raise Exception("Unknown direction: {}".format(dir))
 
     def straight(self):
         if not "switch" in self._xml.tag: raise Exception("Not a switch")
@@ -573,12 +657,17 @@ class PointObjectSet(_Set):
         return PointObjectSet(filter(func, base))
 
     def find_forward(self, set=None, max_dist=inf, min_dist=0.0):
-        if not callable(set): set = lambda x: set
+        set_f = set if callable(set) else (lambda x: set)
         return frozenset([path for start in self \
-                     for path in start.find_forward(set(start), max_dist, min_dist)])
+                     for path in start.find_forward(set_f(start), max_dist, min_dist)])
 
     def paths_forward(self, max_dist=inf, min_dist=0.0):
         return frozenset([path for start in self for path in start.paths_forward(max_dist,min_dist)])
+
+    def find_forward_undirected(self, set=None, max_dist=inf, min_dist=0.0):
+        set_f = set if callable(set) else (lambda x: set)
+        return frozenset([path for start in self \
+                for path in start.find_forward_undirected(set_f(start), max_dist, min_dist)])
 
     def _repr_html_(self):
         return tbl(list(self._items))._repr_html_()
