@@ -1,0 +1,89 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<railml version="2.2" xmlns="http://www.railml.org/schemas/2013">
+  <metadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <creator xmlns="http://purl.org/dc/elements/1.1/">bjslu</creator>
+    <date xmlns="http://purl.org/dc/elements/1.1/">06/14/2018 13:20:01</date>
+    <source xmlns="http://purl.org/dc/elements/1.1/">RailCOMPLETE v0.12.7.0</source>
+    <format xmlns="http://purl.org/dc/elements/1.1/">railML v2.2</format>
+    <title xmlns="http://purl.org/dc/elements/1.1/">C:\Users\bjslu\Desktop\trivial.dwg</title>
+  </metadata>
+  <infrastructure xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="inf_0" name="C:\Users\bjslu\Desktop\trivial.dwg infrastructure" xmlns="http://www.railml.org/schemas/2013">
+    <tracks>
+      <track id="tr_0" code="t1" name="[t1]" type="mainTrack">
+        <trackTopology>
+          <trackBegin id="beg_0" pos="0" absPos="0">
+            <geoCoord coord="67.969257257846 97.3051790995669" />
+            <openEnd id="oe_0" />
+          </trackBegin>
+          <trackEnd id="end_0" pos="274" absPos="274">
+            <geoCoord coord="342.202082341393 90.6525903423735" />
+            <openEnd id="oe_1" />
+          </trackEnd>
+        </trackTopology>
+        <trackElements>
+          <radiusChanges>
+            <radiusChange id="rc_0" name="Start" pos="0" absPos="0" radius="0" />
+          </radiusChanges>
+          <trackConditions>
+            <trackCondition id="trc_0" code="1" name="1" pos="54" absPos="54" dir="up" type="other:SA-SPF Tellepunktavsnitt" />
+            <trackCondition id="trc_1" code="1" name="1" pos="160" absPos="160" dir="down" type="other:SA-SPF Tellepunktavsnitt" />
+            <trackCondition id="trc_2" code="arb1" pos="124" dir="up" type="other:RC Area:Arbeidsområde" />
+          </trackConditions>
+        </trackElements>
+        <ocsElements>
+          <signals>
+            <signal id="sig_0" code="1" name="Hs.1" pos="54" absPos="54" dir="up" sight="250" type="main">
+              <geoCoord coord="121.81241845876036 92.497973114482917 0" />
+            </signal>
+            <signal id="sig_1" code="2" name="Hs.2" pos="160" absPos="160" dir="up" sight="250" type="main">
+              <geoCoord coord="227.87436808965427 89.925026081371428 0" />
+            </signal>
+          </signals>
+          <trainDetectionElements>
+            <trainDetector id="trd_0" code="-/1" name="Tp(-/1)" pos="54" absPos="54" dir="unknown" detectionObject="axle" medium="magnetic" posInTrack="rightRail" directionDetection="false" axleCounting="true">
+              <geoCoord coord="121.95981285038359 96.74564785464608 0" />
+            </trainDetector>
+            <trainDetector id="trd_1" code="1/-" name="Tp(1/-)" pos="160" absPos="160" dir="unknown" detectionObject="axle" medium="magnetic" posInTrack="rightRail" directionDetection="false" axleCounting="true">
+              <geoCoord coord="227.80539601195574 94.177949635715763 0" />
+            </trainDetector>
+          </trainDetectionElements>
+        </ocsElements>
+        <infraAttrGroupRefs />
+      </track>
+    </tracks>
+    <trackGroups>
+      <line id="line_0">
+        <trackRef ref="tr_0" />
+      </line>
+    </trackGroups>
+  </infrastructure>
+  <infrastructureVisualizations xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.railml.org/schemas/2013">
+    <visualization version="2.2" infrastructureRef="inf_0" id="iv_0">
+      <lineVis ref="line_0">
+        <trackVis ref="tr_0">
+          <trackElementVis ref="oe_0">
+            <position x="50" y="400" />
+          </trackElementVis>
+          <trackElementVis ref="beg_0">
+            <position x="50" y="400" />
+          </trackElementVis>
+          <trackElementVis ref="rc_0">
+            <position x="50" y="400" />
+          </trackElementVis>
+          <trackElementVis ref="sig_0">
+            <position x="550" y="400" />
+          </trackElementVis>
+          <trackElementVis ref="sig_1">
+            <position x="1050" y="400" />
+          </trackElementVis>
+          <trackElementVis ref="oe_1">
+            <position x="1550" y="400" />
+          </trackElementVis>
+          <trackElementVis ref="end_0">
+            <position x="1550" y="400" />
+          </trackElementVis>
+        </trackVis>
+      </lineVis>
+    </visualization>
+  </infrastructureVisualizations>
+</railml>

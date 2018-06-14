@@ -397,6 +397,7 @@ objectelementnames = [
         ("trackElements", [
             ("radiusChanges","radiusChange"),
             ("gradientChanges","gradientChange"),
+            ("trackConditions","trackCondition"),
             ]),
         ("ocsElements", [
             ("signals","signal"),
