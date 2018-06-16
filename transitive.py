@@ -185,16 +185,19 @@ import pulp
 linprog = pulp.LpProblem("y_edges", pulp.LpMinimize)
 #edge_vars = pulp.LpVariable.dicts('y_edge', map(str,edge_classes), lowBound=0)
 for ec in edge_classes: ec.yvar = pulp.LpVariable("y_edge" + str(ec), lowBound=0)
-linprog += sum(ec.yvar for ec in edge_classes)
+for i,n in enumerate(ordered_nodes):
+    n.xvar = pulp.LpVariable("x_node_" + str(i), lowBound=0.0)
+
+linprog += sum(n.xvar for n in ordered_nodes) + 1000*sum(ec.yvar for ec in edge_classes)
 
 for ea,eb in constraints:
     linprog += ea.yvar + 1.0 <= eb.yvar
 
 print(linprog)
-print(linprog.solve())
+#print(linprog.solve())
 
-for ec in edge_classes:
-    ec.level = ec.yvar.varValue
+#for ec in edge_classes:
+#    ec.level = ec.yvar.varValue
 #for i,v in enumerate(edge_vars.values()):
     #print(v.name, "=", v.varValue)
     #dge_classes[i].level = v.varValue
@@ -202,8 +205,8 @@ for ec in edge_classes:
     #    if v.name == "y_edge_" + str(ec):
     #        ec.level = v.varValue
 
-for e in edge_classes:
-    print ("EdgeClass " + str(e) + " \t\t@ " + str(e.level))
+#for e in edge_classes:
+#    print ("EdgeClass " + str(e) + " \t\t@ " + str(e.level))
 
 #y_node = {}
 #for node in nodes:
@@ -211,24 +214,20 @@ for e in edge_classes:
 for node in nodes.values():
     node.level = None
     if node.type == "start" or "in" in node.type:
-        node.level = edges[node.outgoing[0]].eq_class.level
+        node.levelvar = edges[node.outgoing[0]].eq_class.yvar
     if node.type == "end" or "out" in node.type:
-        node.level = edges[node.incoming[0]].eq_class.level
+        node.levelvar = edges[node.incoming[0]].eq_class.yvar
 
-for node in nodes.values():
-    print("Node: " + str(node) + ", @ " + str(node.level))
+#for node in nodes.values():
+#    print("Node: " + str(node) + ", @ " + str(node.level))
 
 
 
-linprog_x = pulp.LpProblem("x_nodes", pulp.LpMinimize)
+#linprog_x = pulp.LpProblem("x_nodes", pulp.LpMinimize)
 #node_vars = pulp.LpVariable.dicts('x_node', map(str, list(range(len(ordered_nodes)))), lowBound = 0)
 #print("NODE VARS")
 #print(node_vars)
 
-for i,n in enumerate(ordered_nodes):
-    n.xvar = pulp.LpVariable("x_node_" + str(i), lowBound=0.0)
-
-linprog_x += sum(n.xvar for n in ordered_nodes)
 
 def avvik(ei,ni):
     node = ordered_nodes[ni]
@@ -243,44 +242,72 @@ def avvik(ei,ni):
 # TODO: unless they are facing facing-facing switches? 
 for (i,e) in enumerate(edges):
     dist = 1.41
-    if avvik(i,e.a): dist += abs(ordered_nodes[e.a].level - e.eq_class.level)
-    if avvik(i,e.b): dist += abs(ordered_nodes[e.b].level - e.eq_class.level)
-    linprog_x += ordered_nodes[e.a].xvar + dist <= ordered_nodes[e.b].xvar
+    if avvik(i,e.a): 
+        if ordered_nodes[e.a].outgoing[1] == i: 
+            #downward
+            dist += ordered_nodes[e.a].levelvar - e.eq_class.yvar
+        else:
+            #upward
+            dist += e.eq_class.yvar - ordered_nodes[e.a].levelvar
+
+        #if "out" in ordered_nodes[e.a].type and 
+        #dist += abs(ordered_nodes[e.a].level - e.eq_class.level)
+    if avvik(i,e.b): 
+        if ordered_nodes[e.b].incoming[1] == i:
+            #downward
+            dist += ordered_nodes[e.b].levelvar - e.eq_class.yvar
+        else:
+            #upward
+            dist += e.eq_class.yvar - ordered_nodes[e.b].levelvar
+        #dist += abs(ordered_nodes[e.b].level - e.eq_class.level)
+    linprog += ordered_nodes[e.a].xvar + dist <= ordered_nodes[e.b].xvar
 
 # Km ordering (non-strictly) increasing
 # TODO maximum length distortion constraint?
 for i in range(len(ordered_nodes)-1):
-    linprog_x += ordered_nodes[i].xvar <= ordered_nodes[i+1].xvar
+    linprog += ordered_nodes[i].xvar <= ordered_nodes[i+1].xvar
 
 # If start/end point inside the slanted area
 for (i,e) in enumerate(edges):
     if avvik(i,e.a):
         # Starts in avvik, make sure that any start nodes inside the edge have space
         # any start nodes inside must be at least H away
+        h = 0.0
+
         for j,n in enumerate(ordered_nodes):
             if n.type == "start" and e.a < j < e.b:
-                h = abs(ordered_nodes[e.a].level - n.level) + 1.0 #e.eq_class.level)
-                linprog_x += ordered_nodes[e.a].xvar + h <= n.xvar
+                h = n.levelvar - ordered_nodes[e.a].levelvar + 1.0
+                if ordered_nodes[e.a].outgoing[1] == i: h *= -1.0 #downward
+                linprog += ordered_nodes[e.a].xvar + h <= n.xvar
     if avvik(i,e.b):
         for j,n in enumerate(ordered_nodes):
             if n.type == "end" and e.a < j < e.b:
-                h = abs(ordered_nodes[e.b].level - n.level) + 1.0 #e.eq_class.level)
-                linprog_x += n.xvar + h <= ordered_nodes[e.b].xvar
+                h = n.levelvar - ordered_nodes[e.a].levelvar + 1.0
+                if ordered_nodes[e.b].incoming[1] == i: h *= -1.0 #downward
+                #h = abs(ordered_nodes[e.b].level - n.level) + 1.0 #e.eq_class.level)
+                linprog += n.xvar + h <= ordered_nodes[e.b].xvar
 
 # TODO what if a switch connects inside the slanted area?
 # answer: it doesn't, because there is enough room on the same edge...
 
-print(linprog_x)
-print(linprog_x.solve())
+print(linprog)
+print(linprog.solve())
 
 #for i,v in enumerate(linprog_x.variables()):
     #print(v.name , "=", v.varValue)
     #list(nodes.values())[i].x = v.varValue
 for n in ordered_nodes:
     n.x = n.xvar.varValue
+    n.level = n.levelvar.varValue
+
+for ec in edge_classes:
+    ec.level = ec.yvar.varValue
+
 
 for n in ordered_nodes:
-    print("Node {} @{}\t@{}".format(n.type,n.pos,n.x))
+    print("Node {} @{}\t@{} \t@{}".format(n.type,n.pos,n.x,n.level))
+for ec in edge_classes:
+    print("Edge class {} \t\t@{}".format(str(ec),ec.level))
 
 
 width  = max(n.x for n in ordered_nodes)
