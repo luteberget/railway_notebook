@@ -13,11 +13,22 @@ class Node:
 
 nodes = {
         "in":  Node("start",0.0),
+        "inx":  Node("start",102.0),
         "sw0": Node("outleftsw",100.0),
+        "swx0": Node("outrightsw",120.0),
         "sw1": Node("outleftsw",200.0),
+        "sw1y": Node("inrightsw",300.0),
+        "sw1x": Node("outleftsw",300.0),
         "sw2": Node("inrightsw",700.0),
         "sw3": Node("inrightsw",800.0),
-        "out": Node("end",900.0) }
+        "swx3": Node("inleftsw",820.0),
+        "out": Node("end",900.0),
+        "outx": Node("end",650.0),
+        "inb": Node("start",1.0),
+        "outb": Node("end",901.0),
+        "swb": Node("outleftsw",450.0),
+        "swbx": Node("inleftsw",500.0),
+        }
 
 ordered_nodes = sorted(nodes.values(), key=lambda n: n.pos)
 edges = []
@@ -33,13 +44,24 @@ def edge(a,b):
     edges.append(e)
 
 
+edge("inx","sw1y")
+edge("sw1x","outx")
+edge("sw1x","sw2")
 edge("in","sw0")
 edge("sw0","sw3")
-edge("sw0","sw1")
-edge("sw1","sw2")
+edge("sw0","swx0")
+edge("swx0","sw1")
+edge("sw1","sw1y")
+edge("sw1y","sw1x")
 edge("sw1","sw2")
 edge("sw2","sw3")
-edge("sw3","out")
+edge("sw3","swx3")
+edge("swx3","out")
+edge("swx0","swbx")
+edge("swbx", "swx3")
+edge("inb","swb")
+edge("swb","swbx")
+edge("swb","outb")
 
 
 def eq_classes(items, relations):
@@ -69,7 +91,7 @@ class EdgeEqClass:
         self.right = max(edges[i].b for i in idxs)
         self.idxs = idxs
         for i in idxs: edges[i].eq_class = self
-    def __repr__(self): return "EqCls" + str(self.idxs) + "(" + str(self.left) + "-" + str(self.right) + ")"
+    def __repr__(self): return "EqCls"  + "(" + str(self.left) + "-" + str(self.right) + ")"
 
 eqs = []
 for node in nodes.values():
@@ -93,7 +115,7 @@ print(edge_classes)
 
 
 base = set()
-for (i,n) in enumerate(nodes.values()):
+for (i,n) in enumerate(ordered_nodes): #enumerate(nodes.values()):
     out_ = list(map(lambda x: edges[x].eq_class, reversed(n.outgoing)))
     in_  = list(map(lambda x: edges[x].eq_class, reversed(n.incoming)))
 
@@ -102,7 +124,7 @@ for (i,n) in enumerate(nodes.values()):
 
 def lt_relation(base):
     def overlap(edge,node):
-        return edge.left <= node <= edge.right
+        return edge.left < node < edge.right
 
     lt = set([(a,b) for _,a,b in base])
     delta = set(lt)
@@ -111,14 +133,23 @@ def lt_relation(base):
         up = set()
         
         # 1. transitive closue of lt relation
-        up.update((a,d) for a,b in delta for _,c,d in base \
-                        if b == c and not (a,d) in lt)
+        up0 = list((a,d) for a,b in delta for _,c,d in base \
+                        if b is c and not (a,d) in lt)
+        print("Update 0",up0)
+        up.update(up0)
 
         # 2. using base relation as "tight" lt
-        up.update((b,d) for n,a,b in base for c,d in delta \
-                        if a == c and b != d and overlap(d,n) and not (b,d) in lt)
-        up.update((c,a) for n,a,b in base for c,d in delta \
-                        if b == d and a != c and overlap(c,n) and not (c,a) in lt)
+        up1 = list((b,d) for n,a,b in base for c,d in delta \
+                        if a is c and b is not d and overlap(d,n) and not (b,d) in lt)
+
+        print("Update 1",up1)
+        up.update(up1)
+
+        up2 = list((c,a) for n,a,b in base for c,d in delta \
+                        if b is d and a is not c and overlap(c,n) and not (c,a) in lt)
+
+        print("Update 2",up2)
+        up.update(up2)
 
         # TODO these updates are using a cartesian join, indexing the relations
         # by columns could allow for hash join or merge join
@@ -152,18 +183,24 @@ print("CONSSTRAINTS", len(constraints), constraints)
 #def estring(e): return str(e.a) +"_"+ str(e.b)
 import pulp
 linprog = pulp.LpProblem("y_edges", pulp.LpMinimize)
-edge_vars = pulp.LpVariable.dicts('y_edge', map(str,edge_classes), lowBound=0)
-linprog += sum(edge_vars.values())
+#edge_vars = pulp.LpVariable.dicts('y_edge', map(str,edge_classes), lowBound=0)
+for ec in edge_classes: ec.yvar = pulp.LpVariable("y_edge" + str(ec), lowBound=0)
+linprog += sum(ec.yvar for ec in edge_classes)
 
 for ea,eb in constraints:
-    linprog += edge_vars[str(ea)] + 1.0 <= edge_vars[str(eb)]
+    linprog += ea.yvar + 1.0 <= eb.yvar
 
 print(linprog)
 print(linprog.solve())
 
-for i,v in enumerate(linprog.variables()):
+for ec in edge_classes:
+    ec.level = ec.yvar.varValue
+#for i,v in enumerate(edge_vars.values()):
     #print(v.name, "=", v.varValue)
-    edge_classes[i].level = v.varValue
+    #dge_classes[i].level = v.varValue
+    #for ec in edge_classes:
+    #    if v.name == "y_edge_" + str(ec):
+    #        ec.level = v.varValue
 
 for e in edge_classes:
     print ("EdgeClass " + str(e) + " \t\t@ " + str(e.level))
@@ -184,10 +221,14 @@ for node in nodes.values():
 
 
 linprog_x = pulp.LpProblem("x_nodes", pulp.LpMinimize)
-node_vars = pulp.LpVariable.dicts('x_node', map(str, list(range(len(ordered_nodes)))), lowBound = 0)
-print("NODE VARS")
-print(node_vars)
-linprog_x += sum(node_vars.values())
+#node_vars = pulp.LpVariable.dicts('x_node', map(str, list(range(len(ordered_nodes)))), lowBound = 0)
+#print("NODE VARS")
+#print(node_vars)
+
+for i,n in enumerate(ordered_nodes):
+    n.xvar = pulp.LpVariable("x_node_" + str(i), lowBound=0.0)
+
+linprog_x += sum(n.xvar for n in ordered_nodes)
 
 def avvik(ei,ni):
     node = ordered_nodes[ni]
@@ -199,18 +240,44 @@ def avvik(ei,ni):
 
 
 # Connected noes have dist > 1
+# TODO: unless they are facing facing-facing switches? 
 for (i,e) in enumerate(edges):
     dist = 1.41
     if avvik(i,e.a): dist += abs(ordered_nodes[e.a].level - e.eq_class.level)
     if avvik(i,e.b): dist += abs(ordered_nodes[e.b].level - e.eq_class.level)
-    linprog_x += node_vars[str(e.a)] + dist <= node_vars[str(e.b)]
+    linprog_x += ordered_nodes[e.a].xvar + dist <= ordered_nodes[e.b].xvar
+
+# Km ordering (non-strictly) increasing
+# TODO maximum length distortion constraint?
+for i in range(len(ordered_nodes)-1):
+    linprog_x += ordered_nodes[i].xvar <= ordered_nodes[i+1].xvar
+
+# If start/end point inside the slanted area
+for (i,e) in enumerate(edges):
+    if avvik(i,e.a):
+        # Starts in avvik, make sure that any start nodes inside the edge have space
+        # any start nodes inside must be at least H away
+        for j,n in enumerate(ordered_nodes):
+            if n.type == "start" and e.a < j < e.b:
+                h = abs(ordered_nodes[e.a].level - n.level) + 1.0 #e.eq_class.level)
+                linprog_x += ordered_nodes[e.a].xvar + h <= n.xvar
+    if avvik(i,e.b):
+        for j,n in enumerate(ordered_nodes):
+            if n.type == "end" and e.a < j < e.b:
+                h = abs(ordered_nodes[e.b].level - n.level) + 1.0 #e.eq_class.level)
+                linprog_x += n.xvar + h <= ordered_nodes[e.b].xvar
+
+# TODO what if a switch connects inside the slanted area?
+# answer: it doesn't, because there is enough room on the same edge...
 
 print(linprog_x)
 print(linprog_x.solve())
 
-for i,v in enumerate(linprog_x.variables()):
+#for i,v in enumerate(linprog_x.variables()):
     #print(v.name , "=", v.varValue)
-    list(nodes.values())[i].x = v.varValue
+    #list(nodes.values())[i].x = v.varValue
+for n in ordered_nodes:
+    n.x = n.xvar.varValue
 
 for n in ordered_nodes:
     print("Node {} @{}\t@{}".format(n.type,n.pos,n.x))
@@ -222,7 +289,8 @@ height = max(e.eq_class.level for e in edges)
 import svgwrite
 dwg = svgwrite.Drawing('r.svg', profile='tiny')
 dwg.viewbox(-1,-1,width+2,height+2)
-l = lambda a,b: dwg.add(dwg.line(a, b).stroke(color='red', width="0.01mm"))
+c = "red"
+l = lambda a,b: dwg.add(dwg.line(a, b).stroke(color=c, width="0.01mm"))
 
 for i,e in enumerate(edges):
     y1 = ordered_nodes[e.a].level
@@ -234,6 +302,9 @@ for i,e in enumerate(edges):
     x4 = ordered_nodes[e.b].x
     x3 = x4 - abs(y3-y2)
 
+    c = "blue"
+    if e.eq_class.left == 5 and e.eq_class.right == 11: c= "red"
+    if e.eq_class.left == 2 and e.eq_class.right == 12: c= "purple"
     l((x1,height - y1),(x2,height - y2))
     l((x2,height - y2),(x3,height - y2))
     l((x3,height - y2),(x4,height - y3))

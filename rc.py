@@ -5,6 +5,8 @@ This module exposes the basic building blocks for automating creation of interlo
 tables for railway control systems.
 """
 
+import vis
+
 import xml.etree.ElementTree
 import numbers
 import math
@@ -504,6 +506,9 @@ class Model:
         tracks = list(tracks.findall('railml:track',ns))
         if len(tracks) == 0: raise Exception("Infrastructure contains no tracks.")
 
+        # Vis
+        self.vis = vis.vis_from_railml(tracks)
+
         self._xml_tracks = { (t.attrib["id"]):t for t in  tracks }
         self.tracks = [TrackRef(self, e.attrib["id"],e.attrib["name"]) for e in tracks]
 
@@ -672,4 +677,9 @@ class PointObjectSet(_Set):
 
     def _repr_html_(self):
         return tbl(list(self._items))._repr_html_()
+
+
+if __name__ == '__main__':
+
+    m = Model(filename="trivial-arb2.railml")
 
