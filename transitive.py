@@ -25,7 +25,7 @@ nodes = {
         "out": Node("end",900.0),
         "outx": Node("end",650.0),
         "inb": Node("start",1.0),
-        "outb": Node("end",901.0),
+        "outb": Node("end",2000.0),
         "swb": Node("outleftsw",450.0),
         "swbx": Node("inleftsw",500.0),
         }
@@ -188,10 +188,35 @@ for ec in edge_classes: ec.yvar = pulp.LpVariable("y_edge" + str(ec), lowBound=0
 for i,n in enumerate(ordered_nodes):
     n.xvar = pulp.LpVariable("x_node_" + str(i), lowBound=0.0)
 
+for node in nodes.values():
+    node.level = None
+    if node.type == "start" or "in" in node.type:
+        node.levelvar = edges[node.outgoing[0]].eq_class.yvar
+    if node.type == "end" or "out" in node.type:
+        node.levelvar = edges[node.incoming[0]].eq_class.yvar
+
 linprog += sum(n.xvar for n in ordered_nodes) + 1000*sum(ec.yvar for ec in edge_classes)
 
+def sloeyfe(e):
+    if len(e.idxs) != 1: return False
+    na = ordered_nodes[edges[e.idxs[0]].a]
+    nb = ordered_nodes[edges[e.idxs[0]].b]
+    leftcrossover  = na.type == "outleftsw" and nb.type == "inleftsw"
+    rightcrossover = na.type == "outrightsw" and nb.type == "inrightsw"
+    return leftcrossover or rightcrossover
+
 for ea,eb in constraints:
-    linprog += ea.yvar + 1.0 <= eb.yvar
+    if sloeyfe(eb): 
+        over    = ordered_nodes[edges[eb.idxs[0]].b].xvar
+        under   = ordered_nodes[edges[eb.idxs[0]].a].xvar
+        #over_eq = eb.
+        # TODO up until 2 (max trick)
+        print("OVER UNDER",over,under)
+        #
+        pass #TODO other constraints?x
+    else: linprog += ea.yvar + 1.0 <= eb.yvar
+
+    #pass
 
 print(linprog)
 #print(linprog.solve())
@@ -211,12 +236,6 @@ print(linprog)
 #y_node = {}
 #for node in nodes:
 
-for node in nodes.values():
-    node.level = None
-    if node.type == "start" or "in" in node.type:
-        node.levelvar = edges[node.outgoing[0]].eq_class.yvar
-    if node.type == "end" or "out" in node.type:
-        node.levelvar = edges[node.incoming[0]].eq_class.yvar
 
 #for node in nodes.values():
 #    print("Node: " + str(node) + ", @ " + str(node.level))
@@ -263,29 +282,45 @@ for (i,e) in enumerate(edges):
     linprog += ordered_nodes[e.a].xvar + dist <= ordered_nodes[e.b].xvar
 
 # Km ordering (non-strictly) increasing
-# TODO maximum length distortion constraint?
 for i in range(len(ordered_nodes)-1):
-    linprog += ordered_nodes[i].xvar <= ordered_nodes[i+1].xvar
+    linprog += ordered_nodes[i].xvar + 0.5 <= ordered_nodes[i+1].xvar
+
+    # TODO maximum length distortion constraint?
+    kmdiff = 0.5e-2 * (ordered_nodes[i+1].pos - ordered_nodes[i].pos)
+    linprog += ordered_nodes[i].xvar + kmdiff <= ordered_nodes[i+1].xvar
 
 # If start/end point inside the slanted area
 for (i,e) in enumerate(edges):
     if avvik(i,e.a):
         # Starts in avvik, make sure that any start nodes inside the edge have space
         # any start nodes inside must be at least H away
-        h = 0.0
-
         for j,n in enumerate(ordered_nodes):
             if n.type == "start" and e.a < j < e.b:
-                h = n.levelvar - ordered_nodes[e.a].levelvar + 1.0
-                if ordered_nodes[e.a].outgoing[1] == i: h *= -1.0 #downward
-                linprog += ordered_nodes[e.a].xvar + h <= n.xvar
+                o = edges[[x for x in ordered_nodes[e.a].outgoing if x != i][0]].eq_class
+                nin = edges[n.outgoing[0]].eq_class
+                dis = e.eq_class
+                mellom = ((o,nin) in lt and (nin,dis) in lt) or ((dis,nin) in lt and (nin,o) in lt)
+                if mellom:
+                    h = n.levelvar - ordered_nodes[e.a].levelvar
+                    if ordered_nodes[e.a].outgoing[1] == i: h *= -1.0 #downward
+                    linprog += ordered_nodes[e.a].xvar + h + 1.5 <= n.xvar
     if avvik(i,e.b):
         for j,n in enumerate(ordered_nodes):
             if n.type == "end" and e.a < j < e.b:
-                h = n.levelvar - ordered_nodes[e.a].levelvar + 1.0
-                if ordered_nodes[e.b].incoming[1] == i: h *= -1.0 #downward
-                #h = abs(ordered_nodes[e.b].level - n.level) + 1.0 #e.eq_class.level)
-                linprog += n.xvar + h <= ordered_nodes[e.b].xvar
+                o = edges[[x for x in ordered_nodes[e.b].incoming if x != i][0]].eq_class
+                nin = edges[n.incoming[0]].eq_class
+                dis = e.eq_class
+                mellom = ((o,nin) in lt and (nin,dis) in lt) or ((dis,nin) in lt and (nin,o) in lt)
+                if mellom:
+                    print("MELLOM")
+                    h = n.levelvar - ordered_nodes[e.b].levelvar
+                    if ordered_nodes[e.b].incoming[1] == i: h *= -1.0 #downward
+                    #h = abs(ordered_nodes[e.b].level - n.level) + 1.0 #e.eq_class.level)
+                    print("DOWN AVVIK END")
+                    print(h)
+                    linprog += n.xvar + h + 1.5 <= ordered_nodes[e.b].xvar
+                else:
+                    print("NOT MELLOM")
 
 # TODO what if a switch connects inside the slanted area?
 # answer: it doesn't, because there is enough room on the same edge...
