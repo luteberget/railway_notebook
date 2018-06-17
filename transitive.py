@@ -10,6 +10,14 @@ class Node:
         self.outgoing = []
 
 
+#nodes = {
+#        "inv": Node("start",0.0),
+#        "inh": Node("start",0.0),
+#        "outv": Node("end",1000.0),
+#        "outh": Node("end",1000.0),
+#        "sw1": Node("outleftsw", 200.0),
+#        "sw2": Node("inleftsw", 270.0),
+#        }
 
 nodes = {
         "in":  Node("start",0.0),
@@ -43,6 +51,11 @@ def edge(a,b):
     nodes[b].incoming.append(idx)
     edges.append(e)
 
+#edge("inv","sw2")
+#edge("sw2","outv")
+#edge("sw1","sw2")
+#edge("inh","sw1")
+#edge("sw1","outh")
 
 edge("inx","sw1y")
 edge("sw1x","outx")
@@ -191,6 +204,7 @@ for i,n in enumerate(ordered_nodes):
 for node in nodes.values():
     node.level = None
     if node.type == "start" or "in" in node.type:
+        print(node.type)
         node.levelvar = edges[node.outgoing[0]].eq_class.yvar
     if node.type == "end" or "out" in node.type:
         node.levelvar = edges[node.incoming[0]].eq_class.yvar
@@ -216,7 +230,7 @@ for ea,eb in constraints:
         # hvor X er min(1.0, dx)
         ny_x = pulp.LpVariable("sloeyfe_" + str(edges[eb.idxs[0]].a) + "_" + str(edges[eb.idxs[0]].b), lowBound=0.0, upBound=1.0)
         dx = after.xvar - before.xvar - 1.0 # in [0,->
-        linprog += ny_x <= dx
+        linprog += ny_x <= dx, "slX"
         linprog += ea.yvar + ny_x <= eb.yvar
         sloeyfe_vars.append(ny_x)
     else: linprog += ea.yvar + 1.0 <= eb.yvar
@@ -336,7 +350,7 @@ for (i,e) in enumerate(edges):
 # TODO what if a switch connects inside the slanted area?
 # answer: it doesn't, because there is enough room on the same edge...
 
-linprog += 10*sum(ec.yvar for ec in edge_classes) + sum(n.xvar for n in ordered_nodes) + sum(-1000*x for x in sloeyfe_vars)
+linprog += sum(ec.yvar for ec in edge_classes) + 100.0*sum(n.xvar for n in ordered_nodes) + sum(-10.0*x for x in sloeyfe_vars)
 print(linprog)
 print(linprog.solve())
 
