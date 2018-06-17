@@ -195,7 +195,6 @@ for node in nodes.values():
     if node.type == "end" or "out" in node.type:
         node.levelvar = edges[node.incoming[0]].eq_class.yvar
 
-linprog += sum(n.xvar for n in ordered_nodes) + 1000*sum(ec.yvar for ec in edge_classes)
 
 def sloeyfe(e):
     if len(e.idxs) != 1: return False
@@ -205,20 +204,25 @@ def sloeyfe(e):
     rightcrossover = na.type == "outrightsw" and nb.type == "inrightsw"
     return leftcrossover or rightcrossover
 
+sloeyfe_vars = []
 for ea,eb in constraints:
     if sloeyfe(eb): 
-        over    = ordered_nodes[edges[eb.idxs[0]].b].xvar
-        under   = ordered_nodes[edges[eb.idxs[0]].a].xvar
-        #over_eq = eb.
-        # TODO up until 2 (max trick)
-        print("OVER UNDER",over,under)
-        #
-        pass #TODO other constraints?x
+        # EB er en sløyfe som knytter sammen EA og EX
+        # gjennom node OVER og UNDER
+        after    = ordered_nodes[edges[eb.idxs[0]].b]
+        before   = ordered_nodes[edges[eb.idxs[0]].a]
+        
+        # ea.y + x <= eb.y
+        # hvor X er min(1.0, dx)
+        ny_x = pulp.LpVariable("sloeyfe_" + str(edges[eb.idxs[0]].a) + "_" + str(edges[eb.idxs[0]].b), lowBound=0.0, upBound=1.0)
+        dx = after.xvar - before.xvar - 1.0 # in [0,->
+        linprog += ny_x <= dx
+        linprog += ea.yvar + ny_x <= eb.yvar
+        sloeyfe_vars.append(ny_x)
     else: linprog += ea.yvar + 1.0 <= eb.yvar
-
     #pass
 
-print(linprog)
+#print(linprog)
 #print(linprog.solve())
 
 #for ec in edge_classes:
@@ -260,7 +264,12 @@ def avvik(ei,ni):
 # Connected noes have dist > 1
 # TODO: unless they are facing facing-facing switches? 
 for (i,e) in enumerate(edges):
-    dist = 1.41
+    dist = 1.0
+
+    # unless crossover
+    if ordered_nodes[e.a].type == "outleftsw" and ordered_nodes[e.b].type == "inleftsw": dist = 0.0
+    if ordered_nodes[e.a].type == "outrightsw" and ordered_nodes[e.b].type == "inrightsw": dist = 0.0
+
     if avvik(i,e.a): 
         if ordered_nodes[e.a].outgoing[1] == i: 
             #downward
@@ -283,11 +292,13 @@ for (i,e) in enumerate(edges):
 
 # Km ordering (non-strictly) increasing
 for i in range(len(ordered_nodes)-1):
-    linprog += ordered_nodes[i].xvar + 0.5 <= ordered_nodes[i+1].xvar
+    mindist = 0.25
+    linprog += ordered_nodes[i].xvar + mindist <= ordered_nodes[i+1].xvar
 
     # TODO maximum length distortion constraint?
     kmdiff = 0.5e-2 * (ordered_nodes[i+1].pos - ordered_nodes[i].pos)
-    linprog += ordered_nodes[i].xvar + kmdiff <= ordered_nodes[i+1].xvar
+    #linprog += ordered_nodes[i].xvar + kmdiff <= ordered_nodes[i+1].xvar
+    pass
 
 # If start/end point inside the slanted area
 for (i,e) in enumerate(edges):
@@ -325,6 +336,7 @@ for (i,e) in enumerate(edges):
 # TODO what if a switch connects inside the slanted area?
 # answer: it doesn't, because there is enough room on the same edge...
 
+linprog += 10*sum(ec.yvar for ec in edge_classes) + sum(n.xvar for n in ordered_nodes) + sum(-1000*x for x in sloeyfe_vars)
 print(linprog)
 print(linprog.solve())
 
@@ -343,6 +355,8 @@ for n in ordered_nodes:
     print("Node {} @{}\t@{} \t@{}".format(n.type,n.pos,n.x,n.level))
 for ec in edge_classes:
     print("Edge class {} \t\t@{}".format(str(ec),ec.level))
+for s in sloeyfe_vars:
+    print("Sloeyfe NYX {}".format(s.varValue))
 
 
 width  = max(n.x for n in ordered_nodes)
@@ -352,7 +366,7 @@ import svgwrite
 dwg = svgwrite.Drawing('r.svg', profile='tiny')
 dwg.viewbox(-1,-1,width+2,height+2)
 c = "red"
-l = lambda a,b: dwg.add(dwg.line(a, b).stroke(color=c, width="0.01mm"))
+l = lambda a,b: dwg.add(dwg.line(a, b).stroke(color=c, width="0.01mm", opacity=0.5))
 
 for i,e in enumerate(edges):
     y1 = ordered_nodes[e.a].level
@@ -367,6 +381,7 @@ for i,e in enumerate(edges):
     c = "blue"
     if e.eq_class.left == 5 and e.eq_class.right == 11: c= "red"
     if e.eq_class.left == 2 and e.eq_class.right == 12: c= "purple"
+    if e.eq_class.left == 8 and e.eq_class.right == 9: c="black"
     l((x1,height - y1),(x2,height - y2))
     l((x2,height - y2),(x3,height - y2))
     l((x3,height - y2),(x4,height - y3))
