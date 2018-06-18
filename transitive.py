@@ -36,6 +36,12 @@ nodes = {
         "outb": Node("end",2000.0),
         "swb": Node("outleftsw",450.0),
         "swbx": Node("inleftsw",500.0),
+        "t2s1": Node("outrightsw",1200.0),
+        "t2s3": Node("outleftsw",1300.0),
+        "t2s5": Node("outleftsw",1400.0),
+        "t2s2": Node("inleftsw", 1900.0),
+        "t2s4": Node("inrightsw",1800.0),
+        "t2s6": Node("inrightsw",1700.0),
         }
 
 ordered_nodes = sorted(nodes.values(), key=lambda n: n.pos)
@@ -74,7 +80,16 @@ edge("swx0","swbx")
 edge("swbx", "swx3")
 edge("inb","swb")
 edge("swb","swbx")
-edge("swb","outb")
+edge("swb","t2s1")
+edge("t2s1","t2s2")
+edge("t2s2","outb")
+edge("t2s1","t2s3")
+edge("t2s3","t2s4")
+edge("t2s4","t2s2")
+edge("t2s3","t2s5")
+edge("t2s5","t2s6")
+edge("t2s5","t2s6")
+edge("t2s6","t2s4")
 
 
 def eq_classes(items, relations):
