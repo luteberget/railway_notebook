@@ -5,7 +5,7 @@ This module exposes the basic building blocks for automating creation of interlo
 tables for railway control systems.
 """
 
-import vis
+#import vis
 
 import xml.etree.ElementTree
 import numbers
@@ -116,6 +116,7 @@ class IntervalSet(_Set):
         return sum(x.length() for x in self._items)
 
 def interval_split(a,b,split_ps):
+    """Split intervals at position"""
     ps = [a] + [s for s in sorted(split_ps) if a < s < b] + [b]
     return [(p1,p2) for p1,p2 in zip(ps,ps[1:])]
 
@@ -437,6 +438,7 @@ class Model:
     """Railway infrastructure model (tracks and trackside objects)"""
 
     def find_objects_directed(self, dir, start_obj, goal_set, max_dist, min_dist):
+        """x"""
         stack = [(start_obj, Path.empty())]
         while stack:
             obj,links = stack.pop()

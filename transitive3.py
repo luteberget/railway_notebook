@@ -242,8 +242,8 @@ for e in edges:
     e.dy2 = ordered_nodes[e.b].y - e.y
     e.isupup = pulp.LpVariable("upup{}".format(e.idx), cat="Binary")
     e.isdowndown = pulp.LpVariable("downdown{}".format(e.idx), cat="Binary")
-    e.shortup = pulp.LpVariable("shortup{}".format(e.idx), cat="Binary")
-    e.shortdown = pulp.LpVariable("shortdown{}".format(e.idx), cat="Binary")
+    #e.shortup = pulp.LpVariable("shortup{}".format(e.idx), cat="Binary")
+    #e.shortdown = pulp.LpVariable("shortdown{}".format(e.idx), cat="Binary")
 
 
 # Constraints
@@ -266,8 +266,8 @@ for e in edges:
 # Node X ordering
 for na,nb in zip(ordered_nodes, ordered_nodes[1:]):
     linprog += na.x <= nb.x, "node_dx0_{}_{}".format(na.idx,nb.idx)
-    kmdiff = 0.5e-1 * (nb.pos - na.pos)
-    #linprog += na.x + kmdiff <= nb.x
+    kmdiff = 2.0e-2 * (nb.pos - na.pos)
+    linprog += na.x + kmdiff <= nb.x
     #if na.pos + 5.0 < nb.pos:
     #    linprog += na.x + 1.0 <= nb.x
     # TODO kmdiff?
@@ -484,14 +484,22 @@ for e in edges:
     #linprog += na.x - nb.x + e.absy <= 0.0
     linprog += na.x + e.absy <= nb.x
 
-    linprog += e.isupup >= e.e1up + e.e2up - 1
+    
+    e.shortx   = pulp.LpVariable("shortx{}".format(e.idx), cat="Binary")
+    dx = nb.x - na.x
+    linprog += dx >= 2  - M*(e.shortx)
+    linprog += dx <= 1  + M*(1-e.shortx)
+
+    linprog += e.isupup >= e.e1up + e.e2up + e.shortx - 2
     linprog += e.isupup <= e.e1up
     linprog += e.isupup <= e.e2up
+    linprog += e.isupup <= e.shortx
     # TODO isupup/isdowndown ONLY when dx=dy=1 ?
 
-    linprog += e.isdowndown >= e.e1down + e.e2down - 1
+    linprog += e.isdowndown >= e.e1down + e.e2down + e.shortx - 2
     linprog += e.isdowndown <= e.e1down
     linprog += e.isdowndown <= e.e2down
+    linprog += e.isdowndown <= e.shortx
     linprog += na.x + e.absy + 1.0 <= nb.x + M*e.isdowndown + M*e.isupup
 
 
@@ -502,6 +510,17 @@ for e in edges:
     #  (dy-2) --> 1, 0, -1, -2, -3
     #dy = nb.y - na.y
     #linprog += e.isupup <= (2-dy)   #DISABLE IF not e.e1up OR not e.e2up
+
+    # ALT:
+    # if isupup: dx == 2 => dx >= 3
+
+    # B >= C + 1 - M*(1-A);
+    # C >= B + 1 - M*A
+    # where B = |dx|
+    # where C = 1
+
+
+
 
     pass
 
@@ -569,6 +588,7 @@ if __name__ == '__main__':
                 e.e2up,
                 e.e2straight,
                 e.e2down)
+        print("e.shortx", e.shortx.varValue)
 
         c = "black"
     #    if e.eq_class.left == 5 and e.eq_class.right == 11: c= "red"
