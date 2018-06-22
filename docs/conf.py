@@ -14,12 +14,12 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('.'))
+sys.path.insert(0, os.path.abspath('..'))
 
 
 # -- Project information -----------------------------------------------------
 
-project = 'linespace'
+project = 'spacerail'
 copyright = '2018, BJLUT'
 author = 'BJLUT'
 
@@ -84,7 +84,11 @@ html_theme = 'alabaster'
 # further.  For a list of options available for each theme, see the
 # documentation.
 #
-# html_theme_options = {}
+html_theme_options = {
+        'logo':'spacerail1.png',
+        'logo_name': True,
+        'description': "Railway infrastructure analysis library",
+        }
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -100,12 +104,21 @@ html_static_path = ['_static']
 # 'searchbox.html']``.
 #
 # html_sidebars = {}
+html_sidebars = {
+'**': [
+'about.html',
+'navigation.html',
+'relations.html',
+'searchbox.html',
+'donate.html',
+]
+}
 
 
 # -- Options for HTMLHelp output ---------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'sporhunddoc'
+htmlhelp_basename = 'spaceraildoc'
 
 
 # -- Options for LaTeX output ------------------------------------------------
@@ -132,7 +145,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'sporhund.tex', 'sporhund Documentation',
+    (master_doc, 'spacerail.tex', 'Spacerail Documentation',
      'BJLUT', 'manual'),
 ]
 
@@ -142,7 +155,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'sporhund', 'sporhund Documentation',
+    (master_doc, 'spacerail', 'spacerail Documentation',
      [author], 1)
 ]
 
@@ -153,8 +166,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'sporhund', 'sporhund Documentation',
-     author, 'sporhund', 'One line description of project.',
+    (master_doc, 'spacerail', 'spacerail Documentation',
+     author, 'spacerail', 'One line description of project.',
      'Miscellaneous'),
 ]
 
