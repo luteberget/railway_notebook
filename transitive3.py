@@ -15,10 +15,10 @@ nodes = {
         "t2s1": Node("outrightsw",1200.0),
         "t2s3": Node("outleftsw",1300.0),
         "t2s5": Node("outleftsw",1400.0),
-        "t2s2": Node("inleftsw", 1900.0),
+        "t2s2": Node("inleftsw", 1850.0),
         "t2s4": Node("inrightsw",1800.0),
         "t2s6": Node("inrightsw",1700.0),
-        "t2sz": Node("inrightsw",1500.0),
+        "t2sz": Node("inrightsw",1450.0),
 
 #"in": Node("start",0.0),
 #"sw": Node("outleftsw", 100.0),
@@ -230,7 +230,7 @@ linprog = pulp.LpProblem("trackplan", pulp.LpMinimize)
 # - edge x1,x2 (static)
 #        y1,ymid,y2
 
-M = 100.0
+M = 2*len(edges)
 
 for n in ordered_nodes:
     n.x = pulp.LpVariable("nx" + str(n.idx), lowBound=0.0)
@@ -267,10 +267,11 @@ for e in edges:
 for na,nb in zip(ordered_nodes, ordered_nodes[1:]):
     linprog += na.x <= nb.x, "node_dx0_{}_{}".format(na.idx,nb.idx)
     kmdiff = 2.0e-2 * (nb.pos - na.pos)
-    linprog += na.x + kmdiff <= nb.x
+    #linprog += na.x + kmdiff <= nb.x
     #if na.pos + 5.0 < nb.pos:
     #    linprog += na.x + 1.0 <= nb.x
     # TODO kmdiff?
+
 
 def type_bools(t):
     if t == "outleftsw":  return (True,  True )

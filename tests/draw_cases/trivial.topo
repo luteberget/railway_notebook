@@ -1,0 +1,4 @@
+# Trivial topology
+node a start 0.0
+node b end 1.0
+edge a b

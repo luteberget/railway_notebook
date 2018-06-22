@@ -1,0 +1,24 @@
+node inb    start 1000.0
+node inb0   start 1000.0
+node outb   end  2000.0
+node t2s1   outrightsw 1200.0
+node t2s3   outleftsw  1300.0
+node t2s5   outleftsw  1400.0
+node t2s2   inleftsw   1850.0
+node t2s4   inrightsw  1800.0
+node t2s6   inrightsw  1700.0
+node t2sz   inrightsw  1450.0
+
+edge  inb    t2s1
+edge  t2s1   t2s2
+edge  t2s2   outb
+edge  t2s1   t2s3
+edge  t2s3   t2s4
+edge  t2s4   t2s2
+edge  t2s3   t2s5
+edge  t2s5   t2s6
+edge  t2s5   t2sz
+edge  t2sz   t2s6
+edge  t2s6   t2s4
+edge  inb0   t2sz
+
