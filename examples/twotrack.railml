@@ -2,7 +2,7 @@
 <railml xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.railml.org/schemas/2013">
   <infrastructure>
     <tracks>
-        <track name="SP1">
+        <track name="SP1" id="t1">
             <trackTopology>
                 <trackBegin pos="0.0">
                     <openEnd id="b1" />
@@ -34,7 +34,7 @@
                 </trainDetectionElements>
             </ocsElements>
         </track>
-        <track name="SP2" >
+        <track name="SP2" id="t2">
             <trackTopology>
                 <trackBegin pos="0.0">
                     <connection id="t2begin" ref="sw1branch" />
@@ -49,7 +49,7 @@
                 </connections>
             </trackTopology>
         </track>
-        <track name="SP22">
+        <track name="SP22" id="t22">
             <trackTopology>
                 <trackBegin pos="0.0">
                     <openEnd />
