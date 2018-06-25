@@ -11,6 +11,13 @@ and perform union and intersection operation on such sections.
 **spacerail** aims to help railway engineers write succinct code
 for deriving information for use in interlocking tables.
 
+Organization of code:
+
+ * 1. NETWORK  =dgraph(nodes, edges) + Path/PathSet, (Delimiter=Node?)
+ * 2. RailML = pointobjects, conv->Network
+ * 3. SECTIONS
+ * 4. UTILS(?) interlocking algorithms:  extended routes ??
+ * 5. VISUALIZATION
 
 .. toctree::
    :maxdepth: 2

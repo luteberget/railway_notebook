@@ -1,0 +1,2 @@
+all:
+	plantuml network.uml

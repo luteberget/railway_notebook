@@ -1,0 +1,48 @@
+@startuml
+
+abstract class Edge {
+  length
+  truncate()
+}
+
+Edge <|-- EdgeData
+Edge <|-- PartialEdge
+
+class EdgeData {
+  goal
+  length
+  tag
+}
+class PartialEdge {
+  dist
+  edgedata
+}
+
+abstract class Object {
+}
+
+class Node
+note left: Double point graph
+
+Node - Node: other >
+Node "1" *-- "many" Object : objects
+Node "1" *-- "many" EdgeData : edges
+
+class Network {
+  PathSet paths()
+}
+
+Network "1" *-- "many" Node : nodes
+
+class Path {
+  Path truncate(length)
+}
+Path o-- Edge 
+Path o-- Node 
+
+
+class PathSet
+PathSet "1" *-- "many" Path : items
+
+
+@enduml
