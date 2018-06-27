@@ -1,26 +1,121 @@
+if __name__ == '__main__':
+    from base import *
+else:
+    from spacerail.base import *
+
 from collections import namedtuple
 from collections import defaultdict
 
-class Node:
-    def __init__(self, type_, pos):
+class Switch:
+    def __init__(self, pos):
         self.pos = pos
-        self.type = type_
-        self.incoming = []
-        self.outgoing = []
 
-class Edge: pass
+    def straight_edge(self):
+        if self.side == "left":
+            return self.right
+        if self.side == "right":
+            return self.left
+
+    def deviating_edge(self):
+        if self.side == "left":
+            return self.left
+        if self.side == "right":
+            return self.right
+
+    def top_edge(self,dir):
+        if dir == Dir.UP and self.dir == "outgoing":
+            return self.left
+        if dir == Dir.DOWN and self.dir == "incoming":
+            return self.right
+        raise Exception("Invalid direction for finding top edge")
+
+    def bottom_edge(self,dir):
+        if dir == Dir.UP and self.dir == "outgoing":
+            return self.right
+        if dir == Dir.DOWN and self.dir == "incoming":
+            return self.left
+        raise Exception("Invalid direction for finding bottom edge")
+
+    def get_edges(self,dir):
+        if dir == Dir.UP and self.dir == "outgoing" or \
+                dir == Dir.DOWN and self.dir == "incoming":
+            return [self.left, self.right]
+        else:
+            return [self.trunk]
+
+
+class Boundary:
+    def __init__(self,pos):
+        self.pos = pos
+
+    def get_edges(self,dir):
+        if self.type == "start" and dir == Dir.UP: return [self.conn]
+        if self.type == "end" and dir == Dir.DOWN: return [self.conn]
+        return []
+
+class Directions(namedtuple("Directions",["down","straight","up"])): pass
+
+class Edge: 
+    def __init__(self):
+        self.indir = (None,None,None)
+        self.outdir = (None,None,None)
+
+    def get_node(self,dir):
+        if dir == Dir.UP: 
+            return self.b
+        if dir == Dir.DOWN: 
+            return self.a
+
+    def dy_at(self,node):
+        if self.a == node.idx:
+            return self.dy1
+        if self.b == node.idx:
+            return self.dy2
+        raise Exception()
+
+    def absdy1(self,nodes):
+        if isinstance(nodes[self.a], Switch):
+            if nodes[self.a].side == "left":
+                if nodes[self.a].deviating_edge() == self.idx:
+                    return  self.dy1
+                else:
+                    return -self.dy1
+            else:
+                if nodes[self.a].deviating_edge() == self.idx:
+                    return -self.dy1
+                else:
+                    return  self.dy1
+        else:
+            return self.dy1
+
+
+    def absdy2(self,nodes):
+        if isinstance(nodes[self.b], Switch):
+            if nodes[self.b].side == "left":
+                if nodes[self.b].deviating_edge() == self.idx:
+                    return  self.dy2
+                else:
+                    return -self.dy2
+            else:
+                if nodes[self.b].deviating_edge() == self.idx:
+                    return -self.dy2
+                else:
+                    return  self.dy2
+        else:
+            return self.dy2
+
+
+    def set_dirs_at(self,node):
+        if self.a == node.idx:
+            def s(x):
+                self.outdir = x
+            return s
+        if self.b == node.idx:
+            def s(x):
+                self.indir = x
+            return s
 
 class DrawTopology:
-    def _edge(ons,ns,es,a,b):
-        e = Edge()
-        e.a = ons.index(ns[a])
-        e.b = ons.index(ns[b])
-        idx = len(es)
-        e.idx = idx
-        ns[a].outgoing.append(idx)
-        ns[b].incoming.append(idx)
-        es.append(e)
-
     def _parse_topo(f):
         nodes = {}
         elist = []
@@ -34,20 +129,39 @@ class DrawTopology:
                 pos = float(l.pop(0))
                 if len(l) > 0:
                     raise Exception("Unexpected input on line {}: {}".format(i,line))
-                nodes[name] = Node(type_,pos)
+                if "sw" in type_:
+                    n = Switch(pos)
+                    n.dir = "outgoing" if "out" in type_ else "incoming"
+                    n.side = "left" if "left" in type_ else "right"
+                    nodes[name] = n
+                else:
+                    n = Boundary(pos)
+                    n.type = type_
+                    nodes[name] = n
+                
             elif cons == "edge":
-                a = l.pop(0)
-                b = l.pop(0)
+                a,p = l.pop(0).split(".")
+                b,q = l.pop(0).split(".")
                 if len(l) > 0:
                     raise Exception("Unexpected input on line {}: {}".format(i,line))
-                elist.append((a,b))
+                elist.append(((a,p),(b,q)))
             else:
                 raise Exception("Unexpected input on line {}: {}".format(i,line))
         ordered_nodes = sorted(nodes.values(), key=lambda n: n.pos)
         for i,n in enumerate(ordered_nodes): n.idx = i
         edges = []
-        for a,b in elist:
-            DrawTopology._edge(ordered_nodes, nodes, edges, a, b)
+        for (a,p),(b,q) in elist:
+            e = Edge()
+            e.idx = len(edges)
+            if nodes[a].idx > nodes[b].idx:
+                a,b = b,a
+
+            e.a = ordered_nodes.index(nodes[a])
+            e.b = ordered_nodes.index(nodes[b])
+            setattr(nodes[a], p, e.idx)
+            setattr(nodes[b], q, e.idx)
+            edges.append(e)
+
         return DrawTopology(ordered_nodes,edges)
 
     def __init__(self,nodes,edges):
@@ -58,78 +172,99 @@ class DrawTopology:
 
         edges = self.edges
         ordered_nodes = self.nodes
+        #print("edges",edges)
+        #print("ordered_nodes",ordered_nodes)
 
         from heapq import heappush, heappop
         letftof = set()
 
-        def lr_search_up(n):
+        def lr_search(n, dir):
             over_edges = set()
-            over_nodes = set([edges[n.outgoing[0]].b])
-            over = [(edges[n.outgoing[0]].b, n.outgoing[0])]
+            over_nodes = set([edges[n.top_edge(dir)].get_node(dir)])
+            over = [(dir.factor()*edges[n.top_edge(dir)].get_node(dir), n.top_edge(dir))]
             under_edges = set()
-            under_nodes = set([edges[n.outgoing[1]].b])
-            under = [(edges[n.outgoing[1]].b, n.outgoing[1])]
+            under_nodes = set([edges[n.bottom_edge(dir)].get_node(dir)])
+            under = [(dir.factor()*edges[n.bottom_edge(dir)].get_node(dir), n.bottom_edge(dir))]
 
             while over and under and not over_nodes & under_nodes:
                 if over[0][0] < under[0][0]:
-                    _target_node,edge_idx = heappop(over)
+                    _target_node, edge_idx = heappop(over)
                     over_edges.add(edge_idx)
-                    for ei in ordered_nodes[edges[edge_idx].b].outgoing:
-                        over_nodes.add(edges[ei].b)
-                        heappush(over, (edges[ei].b, ei))
+                    for ei in ordered_nodes[edges[edge_idx].get_node(dir)].get_edges(dir):
+                        over_nodes.add(edges[ei].get_node(dir))
+                        heappush(over, (dir.factor()*edges[ei].get_node(dir), ei))
                 else:
-                    _target_node,edge_idx = heappop(under)
+                    _target_node, edge_idx = heappop(under)
                     under_edges.add(edge_idx)
-                    for ei in ordered_nodes[edges[edge_idx].b].outgoing:
-                        under_nodes.add(edges[ei].b)
-                        heappush(under, (edges[ei].b, ei))
+                    for ei in ordered_nodes[edges[edge_idx].get_node(dir)].get_edges(dir):
+                        under_nodes.add(edges[ei].get_node(dir))
+                        heappush(under, (dir.factor()*edges[ei].get_node(dir), ei))
 
             over_edges.update(e for _,e in over)
             under_edges.update(e for _,e in under)
             return over_edges, under_edges
 
-        def lr_search_down(n):
-            over_edges = set()
-            over_nodes = set([edges[n.incoming[0]].a])
-            over = [(-edges[n.incoming[0]].a, n.incoming[0])]
-            under_edges = set()
-            under_nodes = set([edges[n.incoming[1]].a])
-            under = [(-edges[n.incoming[1]].a, n.incoming[1])]
+        #def lr_search_up(n):
+        #    over_edges = set()
+        #    over_nodes = set([edges[n.outgoing[0]].b])
+        #    over = [(edges[n.outgoing[0]].b, n.outgoing[0])]
+        #    under_edges = set()
+        #    under_nodes = set([edges[n.outgoing[1]].b])
+        #    under = [(edges[n.outgoing[1]].b, n.outgoing[1])]
 
-            while over and under and not over_nodes & under_nodes:
-                if over[0][0] < under[0][0]:
-                    _target_node,edge_idx = heappop(over)
-                    over_edges.add(edge_idx)
-                    for ei in ordered_nodes[edges[edge_idx].a].incoming:
-                        over_nodes.add(edges[ei].a)
-                        heappush(over, (-edges[ei].a, ei))
-                else:
-                    _target_node,edge_idx = heappop(under)
-                    under_edges.add(edge_idx)
-                    for ei in ordered_nodes[edges[edge_idx].a].incoming:
-                        under_nodes.add(edges[ei].a)
-                        heappush(under, (-edges[ei].a, ei))
+        #    while over and under and not over_nodes & under_nodes:
+        #        if over[0][0] < under[0][0]:
+        #            _target_node,edge_idx = heappop(over)
+        #            over_edges.add(edge_idx)
+        #            for ei in ordered_nodes[edges[edge_idx].b].outgoing:
+        #                over_nodes.add(edges[ei].b)
+        #                heappush(over, (edges[ei].b, ei))
+        #        else:
+        #            _target_node,edge_idx = heappop(under)
+        #            under_edges.add(edge_idx)
+        #            for ei in ordered_nodes[edges[edge_idx].b].outgoing:
+        #                under_nodes.add(edges[ei].b)
+        #                heappush(under, (edges[ei].b, ei))
 
-            over_edges.update(e for _,e in over)
-            under_edges.update(e for _,e in under)
-            return over_edges, under_edges
+        #    over_edges.update(e for _,e in over)
+        #    under_edges.update(e for _,e in under)
+        #    return over_edges, under_edges
+
+        #def lr_search_down(n):
+        #    over_edges = set()
+        #    over_nodes = set([edges[n.incoming[0]].a])
+        #    over = [(-edges[n.incoming[0]].a, n.incoming[0])]
+        #    under_edges = set()
+        #    under_nodes = set([edges[n.incoming[1]].a])
+        #    under = [(-edges[n.incoming[1]].a, n.incoming[1])]
+
+        #    while over and under and not over_nodes & under_nodes:
+        #        if over[0][0] < under[0][0]:
+        #            _target_node,edge_idx = heappop(over)
+        #            over_edges.add(edge_idx)
+        #            for ei in ordered_nodes[edges[edge_idx].a].incoming:
+        #                over_nodes.add(edges[ei].a)
+        #                heappush(over, (-edges[ei].a, ei))
+        #        else:
+        #            _target_node,edge_idx = heappop(under)
+        #            under_edges.add(edge_idx)
+        #            for ei in ordered_nodes[edges[edge_idx].a].incoming:
+        #                under_nodes.add(edges[ei].a)
+        #                heappush(under, (-edges[ei].a, ei))
+
+        #    over_edges.update(e for _,e in over)
+        #    under_edges.update(e for _,e in under)
+        #    return over_edges, under_edges
 
         edge_lt = set()
         for n in ordered_nodes:
-            #print (n, n.idx, n.type)
-            if "out" in n.type:
-                l,r = lr_search_up(n)
-                #print("LEFT ",l)
-                #print("RIGHT ",r)
+            if isinstance(n,Switch):
+                dir = Dir.UP if (n.dir == "outgoing") else Dir.DOWN
+                l,r = lr_search(n,dir)
+                print("LEFT",l)
+                print("RIGHT",r)
                 edge_lt.update((a,b) for a in r for b in l)
-            if "in" in n.type:
-                l,r = lr_search_down(n)
-                #print("LEFT ",l)
-                #print("RIGHT ",r)
-                edge_lt.update((a,b) for a in r for b in l)
-
-
-        #print("LT ", edge_lt)
+        print("EDGE_LT",edge_lt)
 
         import pulp
         linprog = pulp.LpProblem("trackplan", pulp.LpMinimize)
@@ -167,7 +302,8 @@ class DrawTopology:
             dist = 1.0
             # ss-to-ss switches
 
-            if "in" in na.type and "out" in nb.type:
+            if isinstance(na,Switch) and isinstance(nb,Switch) and \
+                    na.dir == "incoming" and nb.dir == "outgoing":
                 dist = 0.25
 
             #print("DIST {} {}".format(dist,e.idx))
@@ -183,212 +319,93 @@ class DrawTopology:
             #    linprog += na.x + 1.0 <= nb.x
             # TODO kmdiff?
 
+        #def end_dy(n,e):
+        #    return (e.dy2 if "out" in n.type else e.dy1)
 
-        def type_bools(t):
-            if t == "outleftsw":  return (True,  True )
-            if t == "outrightsw": return (True,  False)
-            if t == "inleftsw":   return (False, True )
-            if t == "inrightsw":  return (False, False)
-            raise Exception("Not a switch type: {}".format(t))
+        #def start_dy(n,e):
+        #    return (e.dy1 if "out" in n.type else e.dy2)
 
-        def trunk(n):
-            return edges[(n.incoming[0] if "out" in n.type else n.outgoing[0])]
+        #def set_conn_dir_start(n,e,down,straight,up):
+        #    if "out" in n.type or "start" in n.type:
+        #        e.e1up = up
+        #        e.e1straight = straight
+        #        e.e1down = down
+        #    if "in" in n.type or "end" in n.type:
+        #        e.e2up = up
+        #        e.e2straight = straight
+        #        e.e2down = down
 
-        def deviating_factor(n):
-            out,left = type_bools(n.type)
-            return (1.0 if out ^ left else -1.0)
-
-        def straight(n):
-            out,left = type_bools(n.type)
-            if out and left: return edges[n.outgoing[1]]
-            if out and not left: return edges[n.outgoing[0]]
-            if not out  and left: return edges[n.incoming[0]]
-            if not out  and not left: return edges[n.incoming[1]]
-
-        def deviating(n):
-            out,left = type_bools(n.type)
-            if out and left: return edges[n.outgoing[0]]
-            if out and not left: return edges[n.outgoing[1]]
-            if not out  and left: return edges[n.incoming[1]]
-            if not out  and not left: return edges[n.incoming[0]]
-
-        def end_dy(n,e):
-            return (e.dy2 if "out" in n.type else e.dy1)
-
-        def start_dy(n,e):
-            return (e.dy1 if "out" in n.type else e.dy2)
-
-        def set_conn_dir_start(n,e,down,straight,up):
-            if "out" in n.type or "start" in n.type:
-                e.e1up = up
-                e.e1straight = straight
-                e.e1down = down
-            if "in" in n.type or "end" in n.type:
-                e.e2up = up
-                e.e2straight = straight
-                e.e2down = down
-
-        def set_conn_dir_end(n,e,down,straight,up):
-            if "out" in n.type or "start" in n.type:
-                e.e2up = up
-                e.e2straight = straight
-                e.e2down = down
-            if "in" in n.type or "end" in n.type:
-                e.e1up = up
-                e.e1straight = straight
-                e.e1down = down
+        #def set_conn_dir_end(n,e,down,straight,up):
+        #    if "out" in n.type or "start" in n.type:
+        #        e.e2up = up
+        #        e.e2straight = straight
+        #        e.e2down = down
+        #    if "in" in n.type or "end" in n.type:
+        #        e.e1up = up
+        #        e.e1straight = straight
+        #        e.e1down = down
 
         one = pulp.LpAffineExpression(constant=1.0)
         zero = pulp.LpAffineExpression(constant=0.0)
 
         # Node shape (switch, start, etc.)
         for n in ordered_nodes:
-            if n.type == "start":
-                e = edges[n.outgoing[0]]
-                linprog += e.dy1 == 0.0,"startdy1"+str(n.idx)
-                set_conn_dir_start(n, e, zero, one, zero)
-            elif n.type == "end":
-                e = edges[n.incoming[0]]
-                linprog += e.dy2 == 0.0,"enddy2"+str(n.idx)
-                set_conn_dir_start(n, e, zero, one, zero)
-            else:
-                # Switch
-                out,left = type_bools(n.type)
-                #n.slanted = pulp.LpVariable("nq" + str(n.idx), cat="Binary")
-                #n.slanted = zero
-                #n.straight = one
-
+            if isinstance(n,Boundary):
+                e = edges[n.conn]
+                if n.type == "start":
+                    linprog += e.dy1 == 0.0
+                    e.outdir = Directions(zero, one, zero)
+                if n.type == "end":
+                    linprog += e.dy2 == 0.0
+                    e.indir = Directions(zero, one, zero)
+            elif isinstance(n,Switch):
                 n.slanted = pulp.LpVariable("nw" + str(n.idx), cat="Binary")
                 n.straight = 1-n.slanted
 
-                
-                set_conn_dir_end(n,trunk(n),
-                        n.slanted if left else zero,        # goes down? 
-                        n.straight, # goes straight?
-                        zero if left else n.slanted)        # goes up?
+                edges[n.trunk].set_dirs_at(n)(Directions(
+                        n.slanted if (n.side == "left") else zero,        # goes down? 
+                        n.straight,                                       # goes straight?
+                        zero if (n.side == "left") else n.slanted         # goes up?
+                    ))
+                edges[n.straight_edge()].set_dirs_at(n)(Directions(
+                        n.slanted if (n.side == "left") else zero,        # goes down? 
+                        n.straight,                                       # goes straight?
+                        zero if (n.side == "left") else n.slanted         # goes up?
+                    ))
 
-                set_conn_dir_start(n,straight(n),
-                        n.slanted if left else zero,        # goes down? 
-                        n.straight, # goes straight?
-                        zero if left else n.slanted)        # goes up?
-
-                set_conn_dir_start(n,deviating(n),
-                        zero if left else n.straight ,              # goes down? 
-                        n.slanted, # goes straight? only if slanted
-                        n.straight if left else zero)
-
-                # If STRAIGHT
-                ##  1. trunk and straight have dy = 0 (straight connections)
-                #linprog += end_dy(  n,trunk(n))    <= M*n.slanted, "trunkstraightA{}".format(n.idx)
-                #linprog += end_dy(  n,trunk(n))    >= -M*n.slanted, "trunkstraightB{}".format(n.idx)
-                #linprog += start_dy(n,straight(n)) <= M*n.slanted, "contstraightA{}".format(n.idx)
-                #linprog += start_dy(n,straight(n)) >= -M*n.slanted, "contstraightB{}".format(n.idx)
-
-                ##  2. deviating has dy > 0 (if upwards, which == left ??)
-                #linprog += (1.0 if left else -1.0)*start_dy(n, deviating(n)) + \
-                #        M*n.slanted >= 0.0, "deviating0"+str(n.idx)
-
-                ## TODO crossover (and ladder?) need to get rid of the 1.0 part
-                #linprog += (1.0 if left else -1.0)*start_dy(n, deviating(n)) + M*n.slanted >= 0.0 - M*(deviating(n).isupup + deviating(n).isdowndown)
-
-                ##linprog += (1.0 if left else -1.0)*start_dy(n, deviating(n)) + \
-                ##        M*n.slanted >= 1.0 - M*deviating(n).isupup - M*deviating(n).isdowndown,\
-                ##        "deviating1"+str(n.idx)
-                ##  3. node Y == trunk Y
-                #linprog += n.y - trunk(n).y <= M*n.slanted, "trunknodeyA{}".format(n.idx)
-                #linprog += n.y - trunk(n).y >= -M*n.slanted, "trunknodeyB{}".format(n.idx)
-
-                ## If SLANTED
-                ##  1. trunk and straight have dy < 0 (if upwards, which == left??)
-                #linprog += (1.0 if left else -1.0)* end_dy(n,trunk(n))      + -M*n.straight <= -0.0
-                #linprog += (1.0 if left else -1.0)* start_dy(n,straight(n)) + -M*n.straight <= -0.0
-                ## TODO crossover (and ladder?) need to get rid of the 1.0 part
-
-                #linprog += (1.0 if left else -1.0)* start_dy(n,straight(n)) + -M*n.straight <= -1.0+ M*(straight(n).isupup + straight(n).isdowndown)
-                #linprog += (1.0 if left else -1.0)* end_dy(n,trunk(n))      + -M*n.straight <= -1.0 + M*(trunk(n).isupup + trunk(n).isdowndown)
-
-                ###  2. deviating has dy = 0
-                #linprog += start_dy(n, deviating(n)) <= M*n.straight
-                #linprog += start_dy(n, deviating(n)) >= -M*n.straight
-                ###  3. node Y == deviating Y
-                #linprog += n.y - deviating(n).y <= M*n.straight
-                #linprog += n.y - deviating(n).y >= -M*n.straight
-
-
+                edges[n.deviating_edge()].set_dirs_at(n)(Directions(
+                        zero if (n.side == "left") else n.straight,
+                        n.slanted, 
+                        n.straight if (n.side == "left") else zero
+                        ))
 
         # Edge shape (switches)
         for e in edges:
             na = ordered_nodes[e.a]
             nb = ordered_nodes[e.b]
-            absdy1,absdy2 = None,None
-
-            #print("EDGE {} {}".format(na.type,nb.type))
-            if na.type == "start":
-                absdy1 = e.dy1
-            if na.type == "end": 
-                raise Exception("Invalid model: edge left node is end node.")
-            if na.type == "outleftsw" and na.outgoing[0] == e.idx: 
-                # Out left deviating 
-                #print("Node {} {}".format(e.idx,na.type))
-                absdy1 = e.dy1
-            if na.type == "outleftsw" and na.outgoing[1] == e.idx: 
-                # Out left straight
-                absdy1 = -e.dy1
-            if na.type == "outrightsw" and na.outgoing[1] == e.idx:
-                # Out right deviating
-                absdy1 = -e.dy1
-            if na.type == "outrightsw" and na.outgoing[0] == e.idx:
-                # Out right straight
-                absdy1 = e.dy1
-            if na.type == "inrightsw":
-                absdy1 = e.dy1
-            if na.type == "inleftsw":
-                absdy1 = -e.dy1
-
-            if nb.type == "start":
-                raise Exception("Invalid model: edge right node is start node.")
-            if nb.type == "end":
-                absdy2 = e.dy2
-            if nb.type == "outleftsw":
-                # out left trunk
-                absdy2 = -e.dy2
-            if nb.type == "outrightsw":
-                # out right trunk
-                absdy2 = e.dy2
-            if nb.type == "inrightsw" and nb.incoming[0] == e.idx:
-                # in right deviating
-                absdy2 = -e.dy2
-            if nb.type == "inrightsw" and nb.incoming[1] == e.idx:
-                # in right continuing
-                absdy2 = e.dy2
-            if nb.type == "inleftsw" and nb.incoming[1] == e.idx:
-                # in left deviating
-                absdy2 = e.dy2
-            if nb.type == "inleftsw" and nb.incoming[0] == e.idx:
-                # in ledt continuing
-                absdy2 = -e.dy2
-
+            absdy1 = e.absdy1(ordered_nodes)
+            absdy2 = e.absdy2(ordered_nodes)
             e.absy = absdy1 + absdy2
 
             # if end is straight, dy = 0
-            linprog += e.dy1 <=  M*(1-e.e1straight)
-            linprog += e.dy1 >= -M*(1-e.e1straight)
-            linprog += e.dy2 <=  M*(1-e.e2straight)
-            linprog += e.dy2 >= -M*(1-e.e2straight)
+            linprog += e.dy1 <=  M*(1-e.outdir.straight)
+            linprog += e.dy1 >= -M*(1-e.outdir.straight)
+            linprog += e.dy2 <=  M*(1-e.indir.straight)
+            linprog += e.dy2 >= -M*(1-e.indir.straight)
 
             ## if end is down, dy <= 1.0
-            linprog += e.dy1 <= 0.0 + M*(1-e.e1down)
-            linprog += e.dy2 <= 0.0 + M*(1-e.e2down)
+            linprog += e.dy1 <= 0.0 + M*(1-e.outdir.down)
+            linprog += e.dy2 <= 0.0 + M*(1-e.indir.down)
             linprog += e.dy1 + e.dy2 <= -1.0 + M*(1-e.isdowndown)
-            linprog += e.dy1         <= -1.0 + M*(1-e.e1down) + M*e.isdowndown
-            linprog += e.dy2         <= -1.0 + M*(1-e.e2down) + M*e.isdowndown
+            linprog += e.dy1         <= -1.0 + M*(1-e.outdir.down) + M*e.isdowndown
+            linprog += e.dy2         <= -1.0 + M*(1-e.indir.down) + M*e.isdowndown
 
             ## if end is up, dy >= 1.0
-            linprog += e.dy1         >= 0.0 -M*(1-e.e1up)
-            linprog += e.dy2         >= 0.0 -M*(1-e.e2up)
+            linprog += e.dy1         >= 0.0 -M*(1-e.outdir.up)
+            linprog += e.dy2         >= 0.0 -M*(1-e.indir.up)
             linprog += e.dy1 + e.dy2 >= 1.0 -M*(1-e.isupup)
-            linprog += e.dy1         >= 1.0 -M*(1-e.e1up) - M*e.isupup
-            linprog += e.dy2         >= 1.0 -M*(1-e.e2up) - M*e.isupup
+            linprog += e.dy1         >= 1.0 -M*(1-e.outdir.up) - M*e.isupup
+            linprog += e.dy2         >= 1.0 -M*(1-e.indir.up) - M*e.isupup
 
             # if  e1up + e2up        -> dist = 0
             # if  e1down + e2down    -> dist = 0
@@ -403,60 +420,28 @@ class DrawTopology:
             linprog += dx >= 2  - M*(e.shortx)
             linprog += dx <= 1  + M*(1-e.shortx)
 
-            linprog += e.isupup >= e.e1up + e.e2up + e.shortx - 2
-            linprog += e.isupup <= e.e1up
-            linprog += e.isupup <= e.e2up
+            linprog += e.isupup >= e.outdir.up + e.indir.up + e.shortx - 2
+            linprog += e.isupup <= e.outdir.up
+            linprog += e.isupup <= e.indir.up
             linprog += e.isupup <= e.shortx
             # TODO isupup/isdowndown ONLY when dx=dy=1 ?
 
-            linprog += e.isdowndown >= e.e1down + e.e2down + e.shortx - 2
-            linprog += e.isdowndown <= e.e1down
-            linprog += e.isdowndown <= e.e2down
+            linprog += e.isdowndown >= e.outdir.down + e.indir.down + e.shortx - 2
+            linprog += e.isdowndown <= e.outdir.down
+            linprog += e.isdowndown <= e.indir.down
             linprog += e.isdowndown <= e.shortx
             linprog += na.x + e.absy + 1.0 <= nb.x + M*e.isdowndown + M*e.isupup
-
-
-            # e.shortup/e.shortdown if upup and na.y - nb.y + 1 >= 0 and nb.x - na.x <= 1
-
-            #  dy = nb.y - na.y    ->  == 1,2,3,4
-            #  2-dy -->  -1, 0, 1, 2, 3
-            #  (dy-2) --> 1, 0, -1, -2, -3
-            #dy = nb.y - na.y
-            #linprog += e.isupup <= (2-dy)   #DISABLE IF not e.e1up OR not e.e2up
-
-            # ALT:
-            # if isupup: dx == 2 => dx >= 3
-
-            # B >= C + 1 - M*(1-A);
-            # C >= B + 1 - M*A
-            # where B = |dx|
-            # where C = 1
-
-
-
-
-            pass
 
         # Edge Y ordering
         for a,b in edge_lt:
             linprog += edges[a].y <= edges[b].y, "edge_y_{}_{}".format(a,b)
             linprog += edges[a].y +1.0 <= edges[b].y + M*(edges[b].isupup + edges[a].isdowndown)
 
-
-        #linprog += sum(e.y for e in edges) + sum(n.x + n.y for n in ordered_nodes) + sum(e.absy for e in edges)
         linprog += sum(e.y for e in edges) + sum(n.x + n.y for n in ordered_nodes) + 100*sum(e.absy for e in edges)
 
-        #print(linprog)
-
-        #import timeit
-        #time_n = 20
-        #print("t=",int(round(timeit.timeit('linprog.solve()', number=20, setup="from __main__ import linprog")/20.0*100000.0))/100.0,"ms")
-        #print(linprog.solve())
-
-
-        #print ("OK")
 
         status = linprog.solve()
+        print("STATUS", status)
         if status != 1:
             raise Exception("Error in drawing topology")
 
@@ -633,3 +618,16 @@ class DrawTopology:
 #edge("t2sz","t2s6")
 #edge("t2s6","t2s4")
 #edge("inb0","t2sz")
+
+def draw_file(f):
+    content = None
+    with open(f) as fx:
+        content = fx.read()
+    topo = DrawTopology._parse_topo(content)
+    topo.solve()
+    print(topo.svg())
+
+if __name__ == '__main__':
+    import sys
+    draw_file(sys.argv[1])
+

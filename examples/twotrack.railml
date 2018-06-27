@@ -2,10 +2,20 @@
 <railml xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.railml.org/schemas/2013">
   <infrastructure>
     <tracks>
-        <track name="SP1" id="t1">
+        <track name="SP0" id="t0">
             <trackTopology>
                 <trackBegin pos="0.0">
                     <openEnd id="b1" />
+                </trackBegin>
+                <trackEnd pos="1000.0">
+                    <connection id="t0end" ref="t1begin" />
+                </trackEnd>
+            </trackTopology>
+        </track>
+        <track name="SP1" id="t1">
+            <trackTopology>
+                <trackBegin pos="0.0">
+                    <connection id="t1begin" ref="t0end" />
                 </trackBegin>
                 <trackEnd pos="1000.0">
                     <openEnd id="b2" />
@@ -40,10 +50,10 @@
                     <connection id="t2begin" ref="sw1branch" />
                 </trackBegin>
                 <trackEnd pos="510.0">
-                    <conneciton id="t2end" ref="sw2branch" />
+                    <connection id="t2end" ref="sw2branch" />
                 </trackEnd>
                 <connections>
-                    <switch id="sw22" dir="down" pos="155.0" >
+                    <switch id="sw22" dir="down" pos="15.0" >
                         <connection course="right" orientation="incoming" id="sw22branch" ref="t22end" />
                     </switch>
                 </connections>
@@ -54,8 +64,8 @@
                 <trackBegin pos="0.0">
                     <openEnd />
                 </trackBegin>
-                <trackEnd pos="20.0">
-                    <conneciton id="t22end" ref="sw2branch" />
+                <trackEnd pos="15.0">
+                    <connection id="t22end" ref="sw22branch" />
                 </trackEnd>
             </trackTopology>
         </track>

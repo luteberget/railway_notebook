@@ -1,2 +1,1 @@
-from spacerail.base import *
-from spacerail.model import *
+from spacerail.network import *

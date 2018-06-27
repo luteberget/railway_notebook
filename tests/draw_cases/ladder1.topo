@@ -9,16 +9,16 @@ node t2s4   inrightsw  1800.0
 node t2s6   inrightsw  1700.0
 node t2sz   inrightsw  1450.0
 
-edge  inb    t2s1
-edge  t2s1   t2s2
-edge  t2s2   outb
-edge  t2s1   t2s3
-edge  t2s3   t2s4
-edge  t2s4   t2s2
-edge  t2s3   t2s5
-edge  t2s5   t2s6
-edge  t2s5   t2sz
-edge  t2sz   t2s6
-edge  t2s6   t2s4
-edge  inb0   t2sz
+edge  inb.conn      t2s1.trunk
+edge  t2s1.left     t2s2.right
+edge  t2s2.trunk    outb.conn
+edge  t2s1.right    t2s3.trunk
+edge  t2s3.left     t2s4.right
+edge  t2s4.trunk    t2s2.left
+edge  t2s3.right    t2s5.trunk
+edge  t2s5.left     t2s6.right
+edge  t2s5.right    t2sz.right
+edge  t2sz.trunk    t2s6.left
+edge  t2s6.trunk    t2s4.left
+edge  inb0.conn     t2sz.left
 
