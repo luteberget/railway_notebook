@@ -1,5 +1,6 @@
 from collections import namedtuple
 from collections import abc
+from spacerail.base import *
 
 class EdgeData(namedtuple("EdgeData",["origin","goal","length","tag"])):
     def truncate(self, offset, length):
@@ -33,6 +34,20 @@ class Path:
     def length(self):
         return sum(x.length for x in self._items)
 
+    def __add__(self,other):
+        if isinstance(other, Path):
+            return Path(self._items + other._items)
+        else:
+            return Path(self._items + other)
+
+    @property
+    def end(self):
+        return self._items[-1]
+
+    @property
+    def tags(self):
+        return [x.tag for x in self._items if isinstance(x, EdgeData) and x.tag is not None]
+
     def truncate(self, new_length):
         new_items = list(self._items)
         length_diff = self.length - new_length
@@ -55,6 +70,36 @@ class Network:
 
     def paths(self, start=None, to=None, directed=True):
         return None
+
+    def search(self, start_node, is_goal_node, max_dist, min_dist):
+        stack = [(start_node, Path([start_node]))]
+        while stack:
+            node,path = stack.pop()
+            for e in node.edges:
+                new_path = path + [e, e.goal]
+                if is_goal_node(e.goal, RelativeDir.OPPOSITE) and min_dist <= new_path.length <= max_dist:
+                    yield new_path
+                else:
+                    new_path = path + [e.goal.other]
+                    if is_goal_node(e.goal.other, RelativeDir.SAME) and min_dist <= new_path.length <= max_dist:
+                        yield new_path
+                    elif new_path.length <= max_dist:
+                        stack.append((e.goal.other, new_path))
+
+        #stack = [(start_node, Path([]))]
+        #while stack:
+        #    node, path = stack.pop()
+        #    if len(node.edges) == 0:
+        #        if min_dist <= path.length():
+        #            yield path
+        #    else:
+        #        for e in node.edges:
+        #            new_path = path + [e,e.goal]
+        #            if new_path.length() <= max_dist:
+        #                stack.append((e.goal, new_path))
+        #            else:
+        #                yield new_path.truncate(max_dist)
+
 
 
     def mk_node_pair(self):

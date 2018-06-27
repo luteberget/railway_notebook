@@ -4,6 +4,7 @@ import xml.etree.ElementTree
 from spacerail.network import *
 from spacerail.base import *
 from spacerail import draw
+from math import inf
 
 ns = {'railml': 'http://www.railml.org/schemas/2013',
                 'dc': 'http://purl.org/dc/elements/1.1/'}
@@ -255,9 +256,9 @@ class Infrastructure:
     def _repr_svg_(self):
         return self.vis.svg()
 
-    @property
-    def objects(self):
-        return (obj for node in self.network.nodes for obj in node.objects)
+    #@property
+    #def objects(self):
+    #    return (obj for node in self.network.nodes for obj in node.objects)
 
 def read_railml(filename):
     """Import a railML file containing infrastructure.
@@ -283,6 +284,8 @@ def read_railml(filename):
     i = Infrastructure()
     i.vis = mk_vis_model(tracks)
     i.network = mk_network_model(tracks)
+    i.objects = PointObjectSet(obj for node in i.network.nodes for obj in node.objects)
+    for o in i.objects: o._inf = i
     return i
 
 
@@ -330,9 +333,11 @@ def mk_network_model(tracks):
 
             if obj.dir == Dir.UP:
                 nb.objects.append(obj)
+                obj.node = nb
             else:
                 # If dir is unknown/both/error, then put it in node A.
                 na.objects.append(obj)
+                obj.node = na
 
             last_pos = obj.pos
             last_node = nb
@@ -409,4 +414,47 @@ class PointObject:
             return Dir.from_string(self._xml.attrib["dir"])
         except KeyError:
             return None
+
+    @property
+    def id(self):
+        return self.getproperty("id")
+
+    def find_forward(self, goals, max_dist=inf, min_dist=0.0, dir=None):
+        if dir is not None:
+            is_goal = (lambda x, same: (x in goals and same == dir))
+        else:
+            is_goal = (lambda x, same: (x in goals))
+
+        return self._inf.network.search(self.node, is_goal, max_dist, min_dist)
+
+import pandas
+class PointObjectSet(ExtendSet):
+    def __str__(self): return "Set of {} point objects.".format(len(self._items))
+
+    def filter(self, func=None, type=None, dir=None, location=None, id=None):
+        if func is None: func = lambda x: True
+        base = self
+        if type is not None:
+            base = filter(lambda x: type.lower() in x._xml.tag.lower(), base)
+        if id is not None:
+            base = filter(lambda x: id == x.id, base)
+        if location is not None:
+            base = filter(lambda x: location.contains(x), base)
+        if dir is not None:
+            base = filter(lambda x: x.dir == dir, base)
+        return PointObjectSet(filter(func, base))
+
+    def table(self,fields=None):
+        if fields is None: fields = ["id","code","name","dir","pos"]
+        return pandas.DataFrame.from_records({k:x.getproperty(k) for k in fields} for x in self)
+
+    def find_forward(self, goals, max_dist=inf, min_dist=0.0, dir=None):
+        """Find objects forward"""
+        goals_f = goals if callable(goals) else (lambda x: goals)
+        return frozenset(path for start in self \
+                              for path in start.find_forward(goals_f(start), max_dist, min_dist, dir))
+
+    def _repr_html_(self):
+        return self.dataframe()._repr_html_()
+
 

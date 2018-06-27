@@ -1,4 +1,16 @@
 from enum import Enum
+from collections import abc
+
+class ExtendSet(abc.Set, abc.Hashable):
+    def __init__(self, l): self._items = frozenset(l)
+    def __contains__(self,item): return item in self._items
+    def __iter__(self): return self._items.__iter__()
+    def __len__(self): return len(self._items)
+    def __hash__(self): return self._items.__hash__()
+
+class RelativeDir(Enum):
+    SAME = 1
+    OPPOSITE = 2
 
 class Dir(Enum):
     """Direction up/down."""
