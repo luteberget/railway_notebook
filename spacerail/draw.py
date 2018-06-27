@@ -15,6 +15,7 @@ class Switch:
             return self.right
         if self.side == "right":
             return self.left
+        raise Exception("Unknown side " + str(self.side))
 
     def deviating_edge(self):
         if self.side == "left":
@@ -169,11 +170,8 @@ class DrawTopology:
         self.edges = edges
 
     def solve(self):
-
         edges = self.edges
         ordered_nodes = self.nodes
-        #print("edges",edges)
-        #print("ordered_nodes",ordered_nodes)
 
         from heapq import heappush, heappop
         letftof = set()
@@ -204,67 +202,12 @@ class DrawTopology:
             under_edges.update(e for _,e in under)
             return over_edges, under_edges
 
-        #def lr_search_up(n):
-        #    over_edges = set()
-        #    over_nodes = set([edges[n.outgoing[0]].b])
-        #    over = [(edges[n.outgoing[0]].b, n.outgoing[0])]
-        #    under_edges = set()
-        #    under_nodes = set([edges[n.outgoing[1]].b])
-        #    under = [(edges[n.outgoing[1]].b, n.outgoing[1])]
-
-        #    while over and under and not over_nodes & under_nodes:
-        #        if over[0][0] < under[0][0]:
-        #            _target_node,edge_idx = heappop(over)
-        #            over_edges.add(edge_idx)
-        #            for ei in ordered_nodes[edges[edge_idx].b].outgoing:
-        #                over_nodes.add(edges[ei].b)
-        #                heappush(over, (edges[ei].b, ei))
-        #        else:
-        #            _target_node,edge_idx = heappop(under)
-        #            under_edges.add(edge_idx)
-        #            for ei in ordered_nodes[edges[edge_idx].b].outgoing:
-        #                under_nodes.add(edges[ei].b)
-        #                heappush(under, (edges[ei].b, ei))
-
-        #    over_edges.update(e for _,e in over)
-        #    under_edges.update(e for _,e in under)
-        #    return over_edges, under_edges
-
-        #def lr_search_down(n):
-        #    over_edges = set()
-        #    over_nodes = set([edges[n.incoming[0]].a])
-        #    over = [(-edges[n.incoming[0]].a, n.incoming[0])]
-        #    under_edges = set()
-        #    under_nodes = set([edges[n.incoming[1]].a])
-        #    under = [(-edges[n.incoming[1]].a, n.incoming[1])]
-
-        #    while over and under and not over_nodes & under_nodes:
-        #        if over[0][0] < under[0][0]:
-        #            _target_node,edge_idx = heappop(over)
-        #            over_edges.add(edge_idx)
-        #            for ei in ordered_nodes[edges[edge_idx].a].incoming:
-        #                over_nodes.add(edges[ei].a)
-        #                heappush(over, (-edges[ei].a, ei))
-        #        else:
-        #            _target_node,edge_idx = heappop(under)
-        #            under_edges.add(edge_idx)
-        #            for ei in ordered_nodes[edges[edge_idx].a].incoming:
-        #                under_nodes.add(edges[ei].a)
-        #                heappush(under, (-edges[ei].a, ei))
-
-        #    over_edges.update(e for _,e in over)
-        #    under_edges.update(e for _,e in under)
-        #    return over_edges, under_edges
-
         edge_lt = set()
         for n in ordered_nodes:
             if isinstance(n,Switch):
                 dir = Dir.UP if (n.dir == "outgoing") else Dir.DOWN
                 l,r = lr_search(n,dir)
-                print("LEFT",l)
-                print("RIGHT",r)
                 edge_lt.update((a,b) for a in r for b in l)
-        print("EDGE_LT",edge_lt)
 
         import pulp
         linprog = pulp.LpProblem("trackplan", pulp.LpMinimize)
@@ -288,9 +231,6 @@ class DrawTopology:
             e.dy2 = ordered_nodes[e.b].y - e.y
             e.isupup = pulp.LpVariable("upup{}".format(e.idx), cat="Binary")
             e.isdowndown = pulp.LpVariable("downdown{}".format(e.idx), cat="Binary")
-            #e.shortup = pulp.LpVariable("shortup{}".format(e.idx), cat="Binary")
-            #e.shortdown = pulp.LpVariable("shortdown{}".format(e.idx), cat="Binary")
-
 
         # Constraints
         # ===========
@@ -306,44 +246,16 @@ class DrawTopology:
                     na.dir == "incoming" and nb.dir == "outgoing":
                 dist = 0.25
 
-            #print("DIST {} {}".format(dist,e.idx))
             linprog += ordered_nodes[e.a].x + dist <= ordered_nodes[e.b].x, "edge_dx_{}".format(e.idx)
 
 
         # Node X ordering
         for na,nb in zip(ordered_nodes, ordered_nodes[1:]):
             linprog += na.x <= nb.x, "node_dx0_{}_{}".format(na.idx,nb.idx)
-            kmdiff = 2.0e-2 * (nb.pos - na.pos)
-            #linprog += na.x + kmdiff <= nb.x
-            #if na.pos + 5.0 < nb.pos:
-            #    linprog += na.x + 1.0 <= nb.x
+
             # TODO kmdiff?
-
-        #def end_dy(n,e):
-        #    return (e.dy2 if "out" in n.type else e.dy1)
-
-        #def start_dy(n,e):
-        #    return (e.dy1 if "out" in n.type else e.dy2)
-
-        #def set_conn_dir_start(n,e,down,straight,up):
-        #    if "out" in n.type or "start" in n.type:
-        #        e.e1up = up
-        #        e.e1straight = straight
-        #        e.e1down = down
-        #    if "in" in n.type or "end" in n.type:
-        #        e.e2up = up
-        #        e.e2straight = straight
-        #        e.e2down = down
-
-        #def set_conn_dir_end(n,e,down,straight,up):
-        #    if "out" in n.type or "start" in n.type:
-        #        e.e2up = up
-        #        e.e2straight = straight
-        #        e.e2down = down
-        #    if "in" in n.type or "end" in n.type:
-        #        e.e1up = up
-        #        e.e1straight = straight
-        #        e.e1down = down
+            #kmdiff = 2.0e-2 * (nb.pos - na.pos)
+            #linprog += na.x + kmdiff <= nb.x
 
         one = pulp.LpAffineExpression(constant=1.0)
         zero = pulp.LpAffineExpression(constant=0.0)
@@ -407,14 +319,8 @@ class DrawTopology:
             linprog += e.dy1         >= 1.0 -M*(1-e.outdir.up) - M*e.isupup
             linprog += e.dy2         >= 1.0 -M*(1-e.indir.up) - M*e.isupup
 
-            # if  e1up + e2up        -> dist = 0
-            # if  e1down + e2down    -> dist = 0
-            # if any straight or     -> dist = 1
-
-            #linprog += na.x - nb.x + e.absy <= 0.0
             linprog += na.x + e.absy <= nb.x
 
-            
             e.shortx   = pulp.LpVariable("shortx{}".format(e.idx), cat="Binary")
             dx = nb.x - na.x
             linprog += dx >= 2  - M*(e.shortx)
@@ -424,7 +330,6 @@ class DrawTopology:
             linprog += e.isupup <= e.outdir.up
             linprog += e.isupup <= e.indir.up
             linprog += e.isupup <= e.shortx
-            # TODO isupup/isdowndown ONLY when dx=dy=1 ?
 
             linprog += e.isdowndown >= e.outdir.down + e.indir.down + e.shortx - 2
             linprog += e.isdowndown <= e.outdir.down
@@ -441,11 +346,10 @@ class DrawTopology:
 
 
         status = linprog.solve()
-        print("STATUS", status)
         if status != 1:
             raise Exception("Error in drawing topology")
 
-        self.width  = max(n.x.varValue for n in ordered_nodes)#len(ordered_nodes)  #max(n.x for n in ordered_nodes)
+        self.width  = max(n.x.varValue for n in ordered_nodes)
         self.height = max(e.y.varValue for e in edges)
 
     def lines(self):
@@ -482,9 +386,9 @@ class DrawTopology:
         import svgwrite
         dwg = svgwrite.Drawing(profile='tiny')
         dwg.viewbox(-1,-1,width+2,height+2)
-        c = "red"
+        c = "black"
         def l(a,b):
-            dwg.add(dwg.line(a, b).stroke(color=c, width="0.01mm", opacity=1.0))
+            dwg.add(dwg.line(a, b).stroke(color=c, width="0.005mm", opacity=1.0))
         for x in self.lines(): l(*x)
         return dwg.tostring()
 

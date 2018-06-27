@@ -4,20 +4,20 @@
     <tracks>
         <track name="SP0" id="t0">
             <trackTopology>
-                <trackBegin pos="0.0">
+                <trackBegin pos="0.0" id="t0beginnode">
                     <openEnd id="b1" />
                 </trackBegin>
-                <trackEnd pos="1000.0">
+                <trackEnd pos="1000.0" id="t0endnode">
                     <connection id="t0end" ref="t1begin" />
                 </trackEnd>
             </trackTopology>
         </track>
         <track name="SP1" id="t1">
             <trackTopology>
-                <trackBegin pos="0.0">
+                <trackBegin pos="0.0" id="t1beginnode">
                     <connection id="t1begin" ref="t0end" />
                 </trackBegin>
-                <trackEnd pos="1000.0">
+                <trackEnd pos="1000.0" id="t2endnode">
                     <openEnd id="b2" />
                 </trackEnd>
                 <connections>
@@ -62,10 +62,10 @@
         <track name="SP22" id="t22">
             <trackTopology>
                 <trackBegin pos="0.0">
-                    <openEnd />
+                    <connection id="t22end" ref="sw22branch" />
                 </trackBegin>
                 <trackEnd pos="15.0">
-                    <connection id="t22end" ref="sw22branch" />
+                    <openEnd />
                 </trackEnd>
             </trackTopology>
         </track>
