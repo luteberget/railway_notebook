@@ -31,9 +31,8 @@
             </trackTopology>
             <ocsElements>
                 <signals>
-                    <signal id="sig1" name="Signal 1" pos="50.0" type="combined"  dir="up"/>
-                    <signal id="sig2" name="Signal 2" pos="250.0" type="main" dir="up"/>
-                    <signal id="sig3" name="Signal 3" pos="350.0" type="main" dir="up"/>
+                    <signal id="sig2" name="Signal 2" pos="100.0" type="main" dir="down"/>
+                    <signal id="sig3" name="Signal 3" pos="450.0" type="main" dir="up"/>
                 </signals>
                 <trainDetectionElements>
                     <trainDetector id="d0" name="detector 1" pos="10.0" />
@@ -53,11 +52,16 @@
                     <connection id="t2end" ref="sw2branch" />
                 </trackEnd>
                 <connections>
-                    <switch id="sw22" dir="down" pos="15.0" >
+                    <switch id="sw22" dir="down" pos="150.0" >
                         <connection course="right" orientation="incoming" id="sw22branch" ref="t22end" />
                     </switch>
                 </connections>
             </trackTopology>
+            <ocsElements>
+                <signals>
+                    <signal id="sig4" name="Signal 5" pos="40.0" type="combined"  dir="down"/>
+                </signals>
+            </ocsElements>
         </track>
         <track name="SP22" id="t22">
             <trackTopology>
@@ -68,6 +72,11 @@
                     <openEnd />
                 </trackEnd>
             </trackTopology>
+            <ocsElements>
+                <signals>
+                    <signal id="sig7" name="Signal 7" pos="2.0" type="combined"  dir="up"/>
+                </signals>
+            </ocsElements>
         </track>
     </tracks>
   </infrastructure>

@@ -1,10 +1,13 @@
 if __name__ == '__main__':
     from base import *
+    from network import *
 else:
     from spacerail.base import *
+    from spacerail.network import *
 
 from collections import namedtuple
 from collections import defaultdict
+import math
 
 class Switch:
     def __init__(self, pos):
@@ -179,10 +182,10 @@ class DrawTopology:
         def lr_search(n, dir):
             over_edges = set()
             over_nodes = set([edges[n.top_edge(dir)].get_node(dir)])
-            over = [(dir.factor()*edges[n.top_edge(dir)].get_node(dir), n.top_edge(dir))]
+            over = [(dir.factor*edges[n.top_edge(dir)].get_node(dir), n.top_edge(dir))]
             under_edges = set()
             under_nodes = set([edges[n.bottom_edge(dir)].get_node(dir)])
-            under = [(dir.factor()*edges[n.bottom_edge(dir)].get_node(dir), n.bottom_edge(dir))]
+            under = [(dir.factor*edges[n.bottom_edge(dir)].get_node(dir), n.bottom_edge(dir))]
 
             while over and under and not over_nodes & under_nodes:
                 if over[0][0] < under[0][0]:
@@ -190,13 +193,13 @@ class DrawTopology:
                     over_edges.add(edge_idx)
                     for ei in ordered_nodes[edges[edge_idx].get_node(dir)].get_edges(dir):
                         over_nodes.add(edges[ei].get_node(dir))
-                        heappush(over, (dir.factor()*edges[ei].get_node(dir), ei))
+                        heappush(over, (dir.factor*edges[ei].get_node(dir), ei))
                 else:
                     _target_node, edge_idx = heappop(under)
                     under_edges.add(edge_idx)
                     for ei in ordered_nodes[edges[edge_idx].get_node(dir)].get_edges(dir):
                         under_nodes.add(edges[ei].get_node(dir))
-                        heappush(under, (dir.factor()*edges[ei].get_node(dir), ei))
+                        heappush(under, (dir.factor*edges[ei].get_node(dir), ei))
 
             over_edges.update(e for _,e in over)
             under_edges.update(e for _,e in under)
@@ -254,8 +257,11 @@ class DrawTopology:
             linprog += na.x <= nb.x, "node_dx0_{}_{}".format(na.idx,nb.idx)
 
             # TODO kmdiff?
-            #kmdiff = 2.0e-2 * (nb.pos - na.pos)
-            #linprog += na.x + kmdiff <= nb.x
+            kmdiff = (nb.pos - na.pos)/500.0
+            linprog += na.x + kmdiff <= nb.x
+
+            if nb.pos - na.pos > 100.0:
+                linprog += na.x + 1.0 <= nb.x
 
         one = pulp.LpAffineExpression(constant=1.0)
         zero = pulp.LpAffineExpression(constant=0.0)
@@ -359,9 +365,6 @@ class DrawTopology:
         edges = self.edges
         for i,e in enumerate(edges):
 
-            na = ordered_nodes[e.a]
-            nb = ordered_nodes[e.b]
-
             y1 = ordered_nodes[e.a].y.varValue
             y2 = e.y.varValue
             y3 = ordered_nodes[e.b].y.varValue
@@ -380,18 +383,111 @@ class DrawTopology:
                     continue
                 yield a,b
 
-    def svg(self):
+    def svgobj(self):
         width = self.width
         height = self.height
         import svgwrite
         dwg = svgwrite.Drawing(profile='tiny')
         dwg.viewbox(-1,-1,width+2,height+2)
+
+        signal = dwg.g(id="signal")
+        signal.add(dwg.rect((-0.01,-0.05),(0.02,0.1)))
+        signal.add(dwg.line((0,0),(0.1,0)).stroke(color="black",width="0.002mm"))
+        signal.add(dwg.circle((0.1+0.05,0),0.05).fill(color="white").stroke(color="black",width="0.002mm"))
+        dwg.defs.add(signal)
+
+        node = dwg.g(id="node")
+        nsize = 0.1
+        node.add(dwg.polygon([(0.0,-nsize),(0.0,nsize),(nsize,0.0)]).fill(color="red"))
+        dwg.defs.add(node)
+
         c = "black"
         def l(a,b):
             dwg.add(dwg.line(a, b).stroke(color=c, width="0.005mm", opacity=1.0))
         for x in self.lines(): l(*x)
-        return dwg.tostring()
+        return dwg
 
+    def svg(self):
+        return self.svgobj().tostring()
+
+    def paths(self,ps):
+        s = "Set of {} paths.".format(len(ps))
+        svg = self.svgobj()
+        for p in ps:
+            for e in [p._items[0], p._items[-1]]:
+                if isinstance(e, Node):
+                    self.add_node(svg,e)
+            for e in p._items:
+                if isinstance(e, EdgeData) and e.length > 0.0:
+                    self.add_edge(svg,e)
+        return s + "<p>" +svg.tostring()
+        #r = ""
+        #for p in ps:
+        #     r += "PATH {}".format(p)
+        #return r
+
+    def add_edge(self, dwg, e):
+        c = "red"
+        def l(a,b):
+            dwg.add(dwg.line(a, b).stroke(color=c, width="0.015mm", opacity=0.7))
+        if isinstance(e, EdgeData) and e.length > 0.0:
+            x1,y1,_,_ = self.node_coords(e.origin)
+            x2,y2,_,_ = self.node_coords(e.goal)
+            l((x1,self.height-y1),(x2,self.height-y2))
+
+
+    def node_coords(self, node):
+        edges = self.edges
+        for e in self.edges:
+            if e.intervals.contains(node.pos[:2]):
+                offset = e.intervals.offset(node.pos[:2])
+                factor = node.pos[2].factor*e.intervals.dirfactor(node.pos[:2])
+                x,y,deriv = get_offset(self.nodes,e,offset)
+                return x,y,deriv,factor
+
+    def add_node(self,dwg,node):
+        x,y,deriv,factor = self.node_coords(node)
+        deg = -int(round(45*deriv))
+        if factor < 0.0: deg += 180
+        dwg.add(dwg.use("#node",(x,self.height-y),transform="rotate({},{},{})".format(deg,x,self.height-y)))
+
+    def add_signal(self,dwg,obj):
+        ordered_nodes = self.nodes
+        edges = self.edges
+        for e in self.edges:
+            if e.intervals.contains((obj._xml_track,obj.pos)):
+                offset = e.intervals.offset((obj._xml_track,obj.pos))
+                factor = obj.dir.factor*e.intervals.dirfactor((obj._xml_track,obj.pos))
+                x,y,deriv = get_offset(ordered_nodes,e,offset)
+                line_dist = 0.125
+                deg = -int(round(45*deriv))
+                if factor < 0.0: deg += 180
+                dwg.add(dwg.use("#signal",(x,self.height-y), transform="rotate({},{},{}) translate({},{})".format(deg,x,self.height-y,0,line_dist)))
+                break
+        pass
+
+def get_offset(ordered_nodes,e,offset):
+    y1 = ordered_nodes[e.a].y.varValue
+    y2 = e.y.varValue
+    y3 = ordered_nodes[e.b].y.varValue
+
+    x1 = ordered_nodes[e.a].x.varValue
+    x2 = x1 + abs(y2-y1)
+    x4 = ordered_nodes[e.b].x.varValue
+    x3 = x4 - abs(y3-y2)
+
+    x = x1+(x4-x1)*offset/(e.intervals.length)
+    if x < x2:
+        deriv = abs(y2-y1)/(y2-y1)
+        y = y1 + (y2-y1)*(x-x1)/(x2-x1)
+    elif x > x3:
+        deriv = abs(y3-y2)/(y3-y2)
+        y = y2 + (y3-y2)*(x-x3)/(x4-x3)
+    else:
+        deriv = 0.0
+        y = y2
+
+    return x,y,deriv
 
 #nodes = {
 

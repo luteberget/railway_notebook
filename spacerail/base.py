@@ -34,6 +34,7 @@ class Dir(Enum):
         if self == Dir.DOWN: return Dir.UP
         raise Exception("Unknown direction value: \"{}\"".format(self))
 
+    @property
     def factor(self):
         """Returns the number 1 for Dir.UP and -1 for Dir.DOWN"""
         if self == Dir.UP: return 1

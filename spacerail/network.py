@@ -60,8 +60,11 @@ class Path:
                 length_diff = 0.0
         return Path(new_items)
 
-class PathSet:
-    pass
+class PathSet(ExtendSet):
+    def _repr_html_(self):
+        o = next(elem.objects[0] for path in self for elem in path._items if isinstance(elem,Node) and len(elem.objects) > 0)
+        return o._inf.vis.paths(self)
+
 
 class Network:
     def __init__(self, nodes=None):
@@ -76,37 +79,27 @@ class Network:
         while stack:
             node,path = stack.pop()
             for e in node.edges:
-                new_path = path + [e, e.goal]
+                new_path = path + [e, e.goal, e.goal.other]
                 if is_goal_node(e.goal, RelativeDir.OPPOSITE) and min_dist <= new_path.length <= max_dist:
                     yield new_path
                 else:
-                    new_path = path + [e.goal.other]
                     if is_goal_node(e.goal.other, RelativeDir.SAME) and min_dist <= new_path.length <= max_dist:
                         yield new_path
                     elif new_path.length <= max_dist:
                         stack.append((e.goal.other, new_path))
 
-        #stack = [(start_node, Path([]))]
-        #while stack:
-        #    node, path = stack.pop()
-        #    if len(node.edges) == 0:
-        #        if min_dist <= path.length():
-        #            yield path
-        #    else:
-        #        for e in node.edges:
-        #            new_path = path + [e,e.goal]
-        #            if new_path.length() <= max_dist:
-        #                stack.append((e.goal, new_path))
-        #            else:
-        #                yield new_path.truncate(max_dist)
 
-
-
-    def mk_node_pair(self):
+    def mk_node_pair(self,t,pos,dir):
         a = Node()
         b = Node()
         a.other = b
         b.other = a
         self.nodes.append(a)
         self.nodes.append(b)
+        a.network = self
+        b.network = self
+
+        a.pos = (t,pos,-dir)
+        b.pos = (t,pos,dir)
+
         return a,b
